@@ -59,29 +59,29 @@ function RootLayoutNav() {
         <Stack.Screen name="(runner-tabs)" />
 
         
-        <Stack.Screen name="flash/controller" />
-        <Stack.Screen name="flash/live" />
-        <Stack.Screen name="flash/order" />
+        <Stack.Screen name="/flash/controller" />
+        <Stack.Screen name="/flash/live" />
+        <Stack.Screen name="/flash/order" />
 
         
-        <Stack.Screen name="orders/create-open-request" />
-        <Stack.Screen name="orders/create-order" />
-        <Stack.Screen name="orders/my-posts-management" />
-        <Stack.Screen name="orders/order-detail" />
-        <Stack.Screen name="orders/order-history" />
-        <Stack.Screen name="orders/order-task-list" />
+        <Stack.Screen name="/orders/create-open-request" />
+        <Stack.Screen name="/orders/create-order" />
+        <Stack.Screen name="/orders/my-posts-management" />
+        <Stack.Screen name="/orders/order-detail" />
+        <Stack.Screen name="/orders/order-history" />
+        <Stack.Screen name="/orders/order-task-list" />
 
         
-        <Stack.Screen name="payment/checkout" />
-        <Stack.Screen name="payment/methods" />
-        <Stack.Screen name="payment/wallet" />
+        <Stack.Screen name="/payment/checkout" />
+        <Stack.Screen name="/payment/methods" />
+        <Stack.Screen name="/payment/wallet" />
 
       
-        <Stack.Screen name="runner/home" />
-        <Stack.Screen name="runner/earnings" />
-        <Stack.Screen name="runner/create-route-post" />
-        <Stack.Screen name="runner/route-pooling-filter" />
-        <Stack.Screen name="runner/open-requests-board" />
+        <Stack.Screen name="/runner/home" />
+        <Stack.Screen name="/runner/earnings" />
+        <Stack.Screen name="/runner/create-route-post" />
+        <Stack.Screen name="/runner/route-pooling-filter" />
+        <Stack.Screen name="/runner/open-requests-board" />
 
 
         <Stack.Screen name="chat-detail/[id]" />
@@ -92,6 +92,10 @@ function RootLayoutNav() {
         <Stack.Screen name="store-detail" />
         <Stack.Screen name="search-results" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="change-password" />
+        <Stack.Screen name="about" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="terms" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="privacy-policy" options={{ presentation: 'modal' }} />
         <Stack.Screen name="mode-switcher" />
         <Stack.Screen name="edit-profile" />
       </Stack>

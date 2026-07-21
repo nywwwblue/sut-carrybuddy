@@ -32,7 +32,6 @@ export default function Settings() {
     ]);
   };
 
-  // ─── แก้ไข: กำหนดไทป์ SettingItemProps เข้าไปที่ตัวรับพารามิเตอร์ ───
   const SettingItem = ({ icon, label, value, onToggle }: SettingItemProps) => (
     <View style={styles.settingItem}>
       <View style={styles.settingLeft}>
@@ -62,7 +61,7 @@ export default function Settings() {
             <Text style={styles.menuLabel}>สลับโหมด (ผู้ฝาก / ผู้รับหิ้ว)</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/change-password')}>
             <Ionicons name="lock-closed" size={24} color="#FF7A30" />
             <Text style={styles.menuLabel}>เปลี่ยนรหัสผ่าน</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
@@ -95,28 +94,22 @@ export default function Settings() {
             value={darkMode}
             onToggle={setDarkMode}
           />
-          <SettingItem
-            icon="wifi-outline"
-            label="โหมดออฟไลน์"
-            value={offlineMode}
-            onToggle={setOfflineMode}
-          />
         </View>
 
         {/* About Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>เกี่ยวกับแอป</Text>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/about')}>
             <Ionicons name="information-circle" size={24} color="#FF7A30" />
             <Text style={styles.menuLabel}>เกี่ยวกับ SUT CarryBuddy</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/terms')}>
             <Ionicons name="document-text" size={24} color="#FF7A30" />
             <Text style={styles.menuLabel}>เงื่อนไขการใช้งาน</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/privacy-policy')}>
             <Ionicons name="shield-checkmark" size={24} color="#FF7A30" />
             <Text style={styles.menuLabel}>นโยบายความเป็นส่วนตัว</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
