@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -48,6 +48,35 @@ export default function FlashLiveScreen() {
     setLoading(false);
   }, [flashPostId, routePass]);
 
+  // ระบบนับถอยหลัง 5 นาที (300 วินาที) และปิดบอร์ดอัตโนมัติเมื่อหมดเวลา
+  useEffect(() => {
+    let secondsLeft = 300;
+    const timer = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        clearInterval(timer);
+        setTimeLeft('00:00');
+        handleExpireSession();
+      } else {
+        const mins = Math.floor(secondsLeft / 60);
+        const secs = secondsLeft % 60;
+        setTimeLeft(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleExpireSession = async () => {
+    if (!flashPostId) return;
+    // ปิดสถานะโพสต์ในฐานข้อมูลเมื่อครบ 5 นาที
+    await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
+    await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
+    
+    Alert.alert('หมดเวลา Flash Buy', 'ครบกำหนด 5 นาทีแล้ว ระบบปิดรับออเดอร์ด่วนอัตโนมัติครับ');
+    router.replace('/runner/runner-home');
+  };
+
   // ใช้ useEffect เพื่อดักฟังการเปลี่ยนแปลงของออเดอร์ (Realtime)
   useEffect(() => {
     if (!flashPostId) return;
@@ -72,7 +101,7 @@ export default function FlashLiveScreen() {
 
     if (!error) {
       router.push({
-        pathname: '/shopping-list',
+        pathname: '/shopping-list' as any,
         params: { orderIds: JSON.stringify(orderIds), totalFee: totalBundleFee }
       });
     }
@@ -87,15 +116,29 @@ export default function FlashLiveScreen() {
         <View style={styles.timerCard}>
           <Text style={styles.timerStatusText}>เวลาคงเหลือ</Text>
           <Text style={styles.timerDigits}>{timeLeft}</Text>
+          <Text style={styles.timerNote}>บอร์ดจะปิดอัตโนมัติเมื่อครบ 5 นาที</Text>
         </View>
+
         <Text style={styles.sectionTitle}>ออเดอร์ด่วนที่เข้ามา ({incomingOrders.length})</Text>
-        {loading ? <ActivityIndicator color="#FF7A30" /> : incomingOrders.map((order) => (
-          <View key={order.id} style={styles.orderCard}>
-            <Text style={styles.orderText}>{order.name} → {order.destination}</Text>
-            <Text style={styles.cardFee}>+{order.fee}฿</Text>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.mainBundleBtn} onPress={handleAcceptBundle} disabled={incomingOrders.length === 0}>
+        
+        {loading ? (
+          <ActivityIndicator color="#FF7A30" style={{ marginVertical: 20 }} />
+        ) : incomingOrders.length === 0 ? (
+          <Text style={styles.emptyText}>ยังไม่มีออเดอร์ด่วนส่งเข้ามาในช่วงเวลานี้...</Text>
+        ) : (
+          incomingOrders.map((order) => (
+            <View key={order.id} style={styles.orderCard}>
+              <Text style={styles.orderText}>{order.name} → {order.destination}</Text>
+              <Text style={styles.cardFee}>+{order.fee}฿</Text>
+            </View>
+          ))
+        )}
+
+        <TouchableOpacity 
+          style={[styles.mainBundleBtn, incomingOrders.length === 0 && { backgroundColor: '#E8D5C4' }]} 
+          onPress={handleAcceptBundle} 
+          disabled={incomingOrders.length === 0}
+        >
           <Text style={styles.mainBundleBtnText}>รับทั้งหมด Bundle {totalBundleFee}฿</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -104,12 +147,6 @@ export default function FlashLiveScreen() {
 }
 
 const styles = StyleSheet.create({
-    orderText: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#3A2113',
-    flex: 1,
-  },
   container: {
     flex: 1,
     backgroundColor: '#FFF8EF',
@@ -135,55 +172,41 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     marginBottom: 20,
+    shadowColor: '#FF7A30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   timerStatusText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
-    marginBottom: 12,
-  },
-  progressCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 4,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 4,
+    marginBottom: 6,
   },
   timerDigits: {
     color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 36,
     fontWeight: 'bold',
+    letterSpacing: 2,
   },
   timerNote: {
     color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 10,
-    marginTop: 14,
+    fontSize: 11,
+    marginTop: 8,
     textAlign: 'center',
-  },
-  liveSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 15,
     fontWeight: 'bold',
     color: '#3A2113',
+    marginBottom: 12,
   },
-  liveBadge: {
-    backgroundColor: '#FFEBEB',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  liveText: {
-    fontSize: 9,
-    color: '#FF4D4D',
-    fontWeight: '800',
+  emptyText: {
+    textAlign: 'center',
+    color: '#B0A498',
+    fontSize: 13,
+    marginVertical: 20,
   },
   orderCard: {
     flexDirection: 'row',
@@ -195,92 +218,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E8D5C4',
   },
-  avatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  orderMeta: {
-    flex: 1,
-    paddingHorizontal: 12,
-  },
-  orderRoute: {
+  orderText: {
     fontSize: 13,
     fontWeight: 'bold',
     color: '#3A2113',
-  },
-  destHighlight: {
-    color: '#8B7E74',
-    fontWeight: '500',
+    flex: 1,
   },
   cardFee: {
     fontSize: 14,
     fontWeight: 'bold',
     color: '#2ECC71',
   },
-  bundleHintCard: {
-    backgroundColor: '#FFF3EB',
-    borderWidth: 1,
-    borderColor: '#E8D5C4',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginVertical: 6,
-  },
-  bundleHintText: {
-    fontSize: 12,
-    color: '#3A2113',
-    fontWeight: '700',
-  },
   mainBundleBtn: {
     backgroundColor: '#FF7A30',
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 20,
+    shadowColor: '#FF7A30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
   },
   mainBundleBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  secondaryBtn: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D5C4',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  secondaryBtnText: {
-    color: '#8B7E74',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  dangerBtn: {
-    backgroundColor: '#FFF3EB',
-    borderWidth: 1,
-    borderColor: '#FF7A30',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  dangerBtnText: {
-    color: '#FF7A30',
-    fontSize: 14,
-    fontWeight: '700',
   },
 });

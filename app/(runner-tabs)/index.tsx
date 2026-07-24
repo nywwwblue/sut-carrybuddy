@@ -26,7 +26,7 @@ export default function RunnerHomeScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 🛠️ 1. เพิ่มสเตตัสควบคุม Pop-up บอร์ด Live ด่วน
+  // เพิ่มสเตตัสควบคุม Pop-up บอร์ด Live ด่วน
   const [liveModalVisible, setLiveModalVisible] = useState(false);
   const [activePostId, setActivePostId] = useState<number | null>(null);
   const [incomingOrders, setIncomingOrders] = useState<IncomingOrder[]>([]);
@@ -287,7 +287,7 @@ export default function RunnerHomeScreen() {
         <View style={styles.historySection}>
           <View style={styles.historyHeader}>
             <Text style={styles.historyTitle}>ประวัติการรับงานใน มทส.</Text>
-            <TouchableOpacity onPress={() => router.push('/orders/order-history' as any)}>
+            <TouchableOpacity onPress={() => router.push('/orders/order-history')}>
               <Text style={styles.historyLink}>ดูทั้งหมด</Text>
             </TouchableOpacity>
           </View>

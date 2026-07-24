@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmptyState } from '@/components/EmptyState';
+import ReportModal from '@/components/ReportModal';
 
 interface PostDetail {
   id: number;
@@ -30,6 +31,7 @@ interface Review {
 export default function RiderDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const [reportVisible, setReportVisible] = useState(false);
   const postId = params.postId as string | undefined;
 
   const [post, setPost] = useState<PostDetail | null>(null);
@@ -96,7 +98,17 @@ export default function RiderDetailsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <ScreenHeader title="รายละเอียดโพสต์" />
+        
+        {/* Header ปกติ และทำปุ่มลอยขวาบนทับไว้ */}
+        <View style={{ position: 'relative' }}>
+          <ScreenHeader title="รายละเอียดโพสต์" />
+          <TouchableOpacity
+            onPress={() => setReportVisible(true)}
+            style={styles.floatingMenuBtn}
+          >
+            <Ionicons name="ellipsis-vertical" size={22} color="#8B7E74" />
+          </TouchableOpacity>
+        </View>
 
         {loading ? (
           <ActivityIndicator color="#FF7A30" style={{ marginTop: 40 }} />
@@ -178,6 +190,14 @@ export default function RiderDetailsScreen() {
             >
               <Text style={styles.contactButtonText}>กดส่งคำขอฝากซื้อของ</Text>
             </TouchableOpacity>
+
+            <ReportModal
+              visible={reportVisible}
+              onClose={() => setReportVisible(false)}
+              targetType="post"
+              targetId={post?.id}
+              targetLabel={`โพสต์ของ ${post?.runnerName ?? 'Runner'}`}
+            />
           </>
         )}
         <View style={styles.spacer} />
@@ -187,6 +207,13 @@ export default function RiderDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  floatingMenuBtn: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
+    padding: 8,
+    zIndex: 10,
+  },
   container: { flex: 1, backgroundColor: '#FFFBF7' },
   emptySubtext: { textAlign: 'center', color: '#B0A498', fontSize: 13, paddingVertical: 10 },
   profileSection: { alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20 },

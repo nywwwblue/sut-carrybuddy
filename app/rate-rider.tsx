@@ -8,7 +8,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 export default function RateRider() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const orderId = params.orderId ? Number(params.orderId) : null;
+  const orderId = params.orderId ? String(params.orderId) : null;
   const runnerId = params.runnerId as string | undefined;
 
   const [runnerName, setRunnerName] = useState('ผู้รับหิ้ว');
@@ -71,7 +71,7 @@ export default function RateRider() {
           </View>
           <View>
             <Text style={styles.riderName}>คุณ {runnerName}</Text>
-            {orderId && <Text style={styles.riderOrder}>Order #{orderId}</Text>}
+            {orderId != null && <Text style={styles.riderOrder}>Order #{orderId}</Text>}
           </View>
         </View>
 

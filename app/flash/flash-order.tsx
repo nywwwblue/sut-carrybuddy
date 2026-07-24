@@ -118,7 +118,7 @@ export default function FlashOrderScreen() {
       if (itemsError) throw itemsError;
 
       Alert.alert('เข้าร่วมสำเร็จ', 'ส่งรายการสินค้าไปยังผู้รับหิ้วเรียบร้อยแล้ว!', [
-        { text: 'ดูออเดอร์', onPress: () => router.replace('/(tabs)/orders' as any) }
+        { text: 'ดูออเดอร์', onPress: () => router.replace('/(tabs)') }
       ]);
     } catch (err: any) {
       Alert.alert('สั่งซื้อไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาด');

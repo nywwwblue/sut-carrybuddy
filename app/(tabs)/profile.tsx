@@ -155,7 +155,7 @@ export default function ProfileScreen() {
             style={styles.menuItem} 
             onPress={() => router.push('/orders/my-posts-management')}>
             <Ionicons name="megaphone" size={20} color="#FF7A30" />
-            <Text style={styles.menuText}>งานรับหิ้วที่เปิดอยู่ (My Posts)</Text>
+            <Text style={styles.menuText}>โพสต์ของฉัน (My Posts)</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0 }]} onPress={() => router.push('/settings')}>

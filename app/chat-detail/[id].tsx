@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, Tex
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import ReportModal from '@/components/ReportModal';
 
 interface Message {
   id: number;
@@ -19,7 +20,9 @@ export default function ChatDetail() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [otherUserId, setOtherUserId] = useState<string | null>(null); // เพิ่ม State เก็บ ID คู่สนทนา
   const [otherName, setOtherName] = useState('แชทกลุ่มย่อย มทส.');
+  const [reportVisible, setReportVisible] = useState(false); // เพิ่ม State สำหรับเปิดปิด Modal รายงาน
   const scrollRef = useRef<ScrollView>(null);
 
   const loadMessages = useCallback(async () => {
@@ -30,13 +33,16 @@ export default function ChatDetail() {
 
     const { data: order } = await supabase
       .from('orders')
-      .select('requester_id, runner_id, requester:requester_id ( name ), runner:runner_id ( name )')
+      .select('requester_id, runner_id, requester:requester_id ( id, name ), runner:runner_id ( id, name )')
       .eq('id', orderId)
       .single();
 
     if (order) {
       const iAmRunner = (order as any).runner_id === uid;
       setOtherName(iAmRunner ? (order as any).requester?.name : (order as any).runner?.name);
+      // ดึง ID ของคู่สนทนามาเก็บไว้ใช้ตอนกด Report
+      const targetId = iAmRunner ? (order as any).requester_id : (order as any).runner_id;
+      setOtherUserId(targetId);
     }
 
     const { data: msgs } = await supabase
@@ -64,7 +70,7 @@ export default function ChatDetail() {
     }, [loadMessages])
   );
 
-  // Realtime: แกะค่า payload เพื่อเช็คป้องกันอารามเบิ้ลข้อความซ้ำซ้อนฝั่ง Client
+  // Realtime
   useEffect(() => {
     if (!orderId) return;
     const channel = supabase
@@ -72,7 +78,6 @@ export default function ChatDetail() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `order_id=eq.${orderId}` }, (payload) => {
         const m = payload.new as any;
         setMessages((prev) => {
-          // ถ้ามีข้อความ id นี้อยู่แล้ว ให้ข้ามไป ไม่ต้อง Push เบิ้ลซ้ำ
           if (prev.some((msg) => msg.id === m.id)) return prev;
           return [
             ...prev,
@@ -96,7 +101,6 @@ export default function ChatDetail() {
     if (!text || !myUserId || !orderId) return;
     setNewMessage('');
     
-    // ยิงขึ้น Database (Realtime Hook จะทำการสะท้อนกลับมาวาดบนจอเองอัตโนมัติ)
     await supabase.from('chat_messages').insert({
       order_id: orderId,
       sender_id: myUserId,
@@ -117,6 +121,10 @@ export default function ChatDetail() {
             <Text style={styles.headerTitle}>{otherName}</Text>
             <Text style={styles.headerStatus}>เลขออเดอร์ฝากหิ้ว #{orderId}</Text>
           </View>
+
+          <TouchableOpacity onPress={() => setReportVisible(true)} style={{ padding: 6 }}>
+            <Ionicons name="flag-outline" size={22} color="#8B7E74" />
+          </TouchableOpacity>
         </View>
 
         {/* Messages */}
@@ -158,6 +166,14 @@ export default function ChatDetail() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <ReportModal
+          visible={reportVisible}
+          onClose={() => setReportVisible(false)}
+          targetType="user"
+          targetUuid={otherUserId || undefined} 
+          targetLabel={`ผู้ใช้ ${otherName}`}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
