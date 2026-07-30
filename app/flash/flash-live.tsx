@@ -110,7 +110,13 @@ export default function FlashLiveScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerBox}>
-        <Text style={styles.headerTitle}>⚡ Live Flash Buy: กำลังรับออเดอร์</Text>
+        <TouchableOpacity 
+          style={styles.backBtn} 
+          onPress={() => router.replace(('/(runner-tabs)'))}
+        >
+          <Ionicons name="arrow-back" size={20} color="#3A2113" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Live Flash Buy: กำลังรับออเดอร์</Text>
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.timerCard}>
@@ -147,21 +153,35 @@ export default function FlashLiveScreen() {
 }
 
 const styles = StyleSheet.create({
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF3EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E8D5C4',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFF8EF',
   },
-  headerBox: {
+headerBox: {
+    flexDirection: 'row', // จัดเรียงปุ่มกับข้อความให้อยู่แถวเดียวกัน
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: '#E8D5C4',
+    gap: 12, // ระยะห่างระหว่างปุ่มย้อนกลับกับหัวข้อ
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#FF7A30',
+    flex: 1, // ให้ข้อความขยายเต็มพื้นที่ที่เหลือ
   },
   scrollContent: {
     padding: 20,

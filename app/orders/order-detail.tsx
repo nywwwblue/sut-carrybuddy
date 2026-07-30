@@ -248,21 +248,31 @@ export default function OrderDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* QR Code (Wallet mode) */}
+        {/* QR Code (Wallet mode) - สลับฝั่ง: ไรเดอร์โชว์ QR ให้ลูกค้าสแกน / ลูกค้ากดเปิดกล้องสแกน */}
         {order.payment_mode === 'wallet' && (
           <View style={styles.qrSection}>
-            <View style={styles.qrContainer}>
-              <View style={styles.qrBox}>
-                <QRCode value={`CARRYBUDDY-ORDER-${order.id}`} size={140} color="#3A2113" backgroundColor="#FFFFFF" />
+            {isRunner ? (
+              /* ฝั่งไรเดอร์ (Runner): แสดง QR Code ของออเดอร์ให้ลูกค้าสแกนยืนยันรับของ */
+              <View style={styles.qrContainer}>
+                <View style={styles.qrBox}>
+                  <QRCode value={`CARRYBUDDY-ORDER-${order.id}`} size={140} color="#3A2113" backgroundColor="#FFFFFF" />
+                </View>
+                <Text style={styles.qrLabel}>QR สำหรับให้ลูกค้าสแกนรับของ (Order #{order.id})</Text>
+                <Text style={styles.qrHintText}>ให้ลูกค้าสแกน QR นี้เมื่อนำส่งสินค้าถึงมือเพื่อจบงาน</Text>
               </View>
-              <Text style={styles.qrLabel}>QR รับสินค้า Order #{order.id}</Text>
-            </View>
-            {isRequester ? (
-              <TouchableOpacity style={styles.regenerateButton} onPress={() => router.push({ pathname: '/qr-scanner', params: { orderId: order.id } })}>
-                <Text style={styles.regenerateButtonText}>สแกน QR เพื่อรับสินค้าและจบงาน</Text>
-              </TouchableOpacity>
             ) : (
-              <Text style={styles.qrHintText}>ให้ผู้ฝากสแกน QR นี้เพื่อปลดล็อกเงินและจบงาน</Text>
+              /* ฝั่งลูกค้า (Requester): มีปุ่มเปิดกล้องสแกน QR ของไรเดอร์เพื่อยืนยันรับของ */
+              <View style={styles.qrContainer}>
+                <Text style={styles.qrLabel}>ยืนยันการรับสินค้า</Text>
+                <TouchableOpacity 
+                  style={styles.regenerateButton} 
+                  onPress={() => router.push({ pathname: '/qr-scanner', params: { orderId: order.id } })}
+                >
+                  <Ionicons name="camera" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.regenerateButtonText}>เปิดกล้องสแกน QR ของไรเดอร์</Text>
+                </TouchableOpacity>
+                <Text style={styles.qrHintText}>เมื่อได้รับสินค้าแล้ว กดปุ่มนี้เพื่อส่อง QR Code ของไรเดอร์</Text>
+              </View>
             )}
           </View>
         )}

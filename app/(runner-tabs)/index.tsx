@@ -281,6 +281,14 @@ export default function RunnerHomeScreen() {
             <Ionicons name="megaphone-outline" size={22} color="#FF7A30" />
             <Text style={styles.actionCardText}>บอร์ดคำขอเปิด{"\n"}(ยังไม่มีคนรับ)</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard} 
+            onPress={() => router.push('/shopping-list' as any)}
+          >
+              <Ionicons name="basket-outline" size={22} color="#FF7A30" />
+            <Text style={styles.actionCardText}>ดูใบงานรวม{'\n'}(Shopping List)</Text>
+          </TouchableOpacity>
         </View>
 
         {/* History */}
@@ -326,7 +334,7 @@ export default function RunnerHomeScreen() {
   );
 }
 
-// 🎨 จัดโครงสร้างสไตล์ Property แยกแถวแนวตั้ง มินิมอลสมมาตร
+
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
@@ -470,6 +478,14 @@ const styles = StyleSheet.create({
     color: '#3A2113', 
     textAlign: 'center', 
     lineHeight: 18 
+  },
+  actionCardIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#fff5ef',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   historySection: { 
     paddingHorizontal: 20, 

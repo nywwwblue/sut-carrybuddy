@@ -139,28 +139,31 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ปุ่มเมนูเชื่อมต่อหน้าย่อยอื่นๆ */}
+        {/* ปุ่มเมนูเชื่อมต่อหน้าย่อยอื่นๆ (แยกตามโหมดการใช้งาน) */}
         <View style={styles.menuGroup}>
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/payment/wallet')}>
             <Ionicons name="wallet" size={20} color="#FF7A30" />
             <Text style={styles.menuText}>กระเป๋าเงิน (Wallet)</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/orders/order-history')}>
-            <Ionicons name="time" size={20} color="#FF7A30" />
-            <Text style={styles.menuText}>ประวัติ Order ทั้งหมด</Text>
+
+          {/* ถ้าเป็นฝั่งผู้ซื้อ (Requester) ให้แสดงเมนูประวัติคำขอฝากซื้อ */}
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/orders/my-requests' as any)}>
+            <Ionicons name="receipt" size={20} color="#FF7A30" />
+            <Text style={styles.menuText}>ประวัติคำขอฝากซื้อของฉัน</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.menuItem} 
-            onPress={() => router.push('/orders/my-posts-management')}>
+
+          {/* ถ้าเป็นฝั่งคนรับหิ้ว (Runner) ให้แสดงเมนูจัดการโพสต์รับหิ้ว */}
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/runner/my-posts-management' as any)}>
             <Ionicons name="megaphone" size={20} color="#FF7A30" />
-            <Text style={styles.menuText}>โพสต์ของฉัน (My Posts)</Text>
+            <Text style={styles.menuText}>จัดการโพสต์รับหิ้วของฉัน</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
+
           <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0 }]} onPress={() => router.push('/settings')}>
-            <Ionicons name="person" size={20} color="#FF7A30" />
-            <Text style={styles.menuText}>ตั้งค่าโปรไฟล์</Text>
+            <Ionicons name="settings" size={20} color="#FF7A30" />
+            <Text style={styles.menuText}>ตั้งค่าทั่วไป</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
         </View>
