@@ -93,6 +93,7 @@ function RootLayoutNav() {
         <Stack.Screen name="search-results" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="change-password" />
+        <Stack.Screen name="reset-password" />
         <Stack.Screen name="about" options={{ presentation: 'modal' }} />
         <Stack.Screen name="terms" options={{ presentation: 'modal' }} />
         <Stack.Screen name="privacy-policy" options={{ presentation: 'modal' }} />

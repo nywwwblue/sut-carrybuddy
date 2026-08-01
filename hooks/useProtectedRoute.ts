@@ -40,7 +40,7 @@ export function useProtectedRoute() {
     } else if (session && inAuthGroup) {
       router.replace('/mode-switcher');
     }
-  }, [session, initialized, segments]);
+  }, [session, initialized, segments, router]); // 👈 เพิ่ม router เข้าไปตรงนี้
 
   return initialized;
 }
