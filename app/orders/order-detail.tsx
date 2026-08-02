@@ -301,7 +301,22 @@ export default function OrderDetailScreen() {
               <Text style={styles.riderName}>{order.otherPartyName}</Text>
               <Text style={styles.riderTrust}>Trust {order.otherPartyTrust}</Text>
             </View>
-            <TouchableOpacity style={styles.messageButton} onPress={() => router.push({ pathname: '/chat-detail/[id]', params: { id: String(order.id) } })}>
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={async () => {
+                // หาห้องแชทเดิมของคู่นี้ หรือสร้างใหม่ถ้ายังไม่เคยคุยกันมาก่อน
+                // (กันปัญหาห้องแชทซ้ำเวลามีออเดอร์ร่วมกันหลายครั้ง)
+                const otherPartyId = isRunner ? order.requester_id : order.runner_id;
+                const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
+                  other_user_id: otherPartyId,
+                });
+                if (error || !conversationId) {
+                  Alert.alert('เปิดแชทไม่สำเร็จ', error?.message ?? 'กรุณาลองใหม่อีกครั้ง');
+                  return;
+                }
+                router.push({ pathname: '/chat-detail/[id]', params: { id: String(conversationId) } });
+              }}
+            >
               <Ionicons name="chatbubble" size={20} color="#FF7A30" />
             </TouchableOpacity>
           </View>

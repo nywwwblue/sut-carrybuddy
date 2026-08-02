@@ -12,43 +12,44 @@ interface Message {
   timestamp: string;
 }
 
+// หมายเหตุ: พารามิเตอร์ชื่อ "id" ในเส้นทางนี้ตอนนี้หมายถึง conversationId (ห้องแชทของคู่สนทนา)
+// ไม่ใช่ orderId แบบเดิมแล้ว — เพื่อให้ 1 คู่คนคุย = 1 ห้องแชทเดียวตลอด ไม่ว่าจะมีออเดอร์ร่วมกันกี่ครั้งก็ตาม
 export default function ChatDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
-  const orderId = Number(id);
+  const conversationId = Number(id);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [otherUserId, setOtherUserId] = useState<string | null>(null); // เพิ่ม State เก็บ ID คู่สนทนา
-  const [otherName, setOtherName] = useState('แชทกลุ่มย่อย มทส.');
-  const [reportVisible, setReportVisible] = useState(false); // เพิ่ม State สำหรับเปิดปิด Modal รายงาน
+  const [otherUserId, setOtherUserId] = useState<string | null>(null);
+  const [otherName, setOtherName] = useState('แชท');
+  const [reportVisible, setReportVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const loadMessages = useCallback(async () => {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id ?? null;
     setMyUserId(uid);
-    if (!uid || !orderId) return;
+    if (!uid || !conversationId) return;
 
-    const { data: order } = await supabase
-      .from('orders')
-      .select('requester_id, runner_id, requester:requester_id ( id, name ), runner:runner_id ( id, name )')
-      .eq('id', orderId)
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('user_a_id, user_b_id, a:user_a_id ( id, name ), b:user_b_id ( id, name )')
+      .eq('id', conversationId)
       .single();
 
-    if (order) {
-      const iAmRunner = (order as any).runner_id === uid;
-      setOtherName(iAmRunner ? (order as any).requester?.name : (order as any).runner?.name);
-      // ดึง ID ของคู่สนทนามาเก็บไว้ใช้ตอนกด Report
-      const targetId = iAmRunner ? (order as any).requester_id : (order as any).runner_id;
-      setOtherUserId(targetId);
+    if (conversation) {
+      const iAmUserA = (conversation as any).user_a_id === uid;
+      const other = iAmUserA ? (conversation as any).b : (conversation as any).a;
+      setOtherName(other?.name || 'ไม่ทราบชื่อ');
+      setOtherUserId(other?.id ?? null);
     }
 
     const { data: msgs } = await supabase
       .from('chat_messages')
       .select('id, sender_id, content, created_at')
-      .eq('order_id', orderId)
+      .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
 
     if (msgs) {
@@ -60,9 +61,9 @@ export default function ChatDetail() {
           timestamp: new Date(m.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
         }))
       );
-      await supabase.from('chat_messages').update({ is_read: true }).eq('order_id', orderId).neq('sender_id', uid);
+      await supabase.from('chat_messages').update({ is_read: true }).eq('conversation_id', conversationId).neq('sender_id', uid);
     }
-  }, [orderId]);
+  }, [conversationId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,39 +71,43 @@ export default function ChatDetail() {
     }, [loadMessages])
   );
 
-  // Realtime
+  // Realtime — ชื่อ channel คงที่ต่อห้องแชท (ไม่พ่วง Date.now()) กันปัญหา channel ซ้อนกัน
   useEffect(() => {
-    if (!orderId) return;
+    if (!conversationId) return;
     const channel = supabase
-      .channel(`chat-order-${orderId}-${Date.now()}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `order_id=eq.${orderId}` }, (payload) => {
-        const m = payload.new as any;
-        setMessages((prev) => {
-          if (prev.some((msg) => msg.id === m.id)) return prev;
-          return [
-            ...prev,
-            { 
-              id: m.id, 
-              senderId: m.sender_id, 
-              text: m.content || '', 
-              timestamp: new Date(m.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) 
-            },
-          ];
-        });
-      })
+      .channel(`chat-conversation-${conversationId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${conversationId}` },
+        (payload) => {
+          const m = payload.new as any;
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === m.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: m.id,
+                senderId: m.sender_id,
+                text: m.content || '',
+                timestamp: new Date(m.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+              },
+            ];
+          });
+        }
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [orderId]);
+  }, [conversationId]);
 
   const handleSendMessage = async () => {
     const text = newMessage.trim();
-    if (!text || !myUserId || !orderId) return;
+    if (!text || !myUserId || !conversationId) return;
     setNewMessage('');
-    
+
     await supabase.from('chat_messages').insert({
-      order_id: orderId,
+      conversation_id: conversationId,
       sender_id: myUserId,
       content: text,
       msg_type: 'text',
@@ -119,7 +124,6 @@ export default function ChatDetail() {
           </TouchableOpacity>
           <View style={styles.headerInfo}>
             <Text style={styles.headerTitle}>{otherName}</Text>
-            <Text style={styles.headerStatus}>เลขออเดอร์ฝากหิ้ว #{orderId}</Text>
           </View>
 
           <TouchableOpacity onPress={() => setReportVisible(true)} style={{ padding: 6 }}>
@@ -171,7 +175,7 @@ export default function ChatDetail() {
           visible={reportVisible}
           onClose={() => setReportVisible(false)}
           targetType="user"
-          targetUuid={otherUserId || undefined} 
+          targetUuid={otherUserId || undefined}
           targetLabel={`ผู้ใช้ ${otherName}`}
         />
       </KeyboardAvoidingView>
