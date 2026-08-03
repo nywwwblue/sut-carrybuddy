@@ -20,7 +20,7 @@ export default function ForgotPasswordScreen() {
     // redirectTo ชี้ไปหน้าเว็บ (โฮสต์บน GitHub Pages) แทนการกลับเข้าแอปโดยตรง
     // เพราะ Expo Go เปิด deep link จากอีเมลไม่เสถียร — หน้าเว็บเปิดในเบราว์เซอร์ปกติได้ชัวร์กว่า
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://YOUR_GITHUB_USERNAME.github.io/sutcarrybuddy-reset-password/reset-password.html',
+      redirectTo: 'https://sutcarrybuddy.netlify.app/',
     });
     setLoading(false);
 
