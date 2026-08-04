@@ -1,10 +1,104 @@
-import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback, useState, useEffect } from 'react';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
+
+// 📐 ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
+function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+function calculateETA(distanceMeters: number) {
+  const estimatedRoadDistance = distanceMeters * 1.35;
+  const SPEED_METERS_PER_MIN = 416; // 25 กม./ชม.
+  const minutes = Math.ceil(estimatedRoadDistance / SPEED_METERS_PER_MIN);
+
+  let distanceText = '';
+  if (estimatedRoadDistance >= 1000) {
+    distanceText = `${(estimatedRoadDistance / 1000).toFixed(1)} กิโลเมตร`;
+  } else {
+    distanceText = `${Math.round(estimatedRoadDistance)} เมตร`;
+  }
+
+  return { distanceText, minutes: minutes < 1 ? 1 : minutes };
+}
+
+// 📡 คอมโพเนนต์ LiveTrackingCard สำหรับคนฝากหิ้ว
+function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number | string; dropoffLat: number; dropoffLng: number }) {
+  const [etaInfo, setEtaInfo] = useState<{ distanceText: string; minutes: number } | null>(null);
+
+  useEffect(() => {
+    if (!orderId || !dropoffLat || !dropoffLng) return;
+
+    const channel = supabase
+      .channel(`runner-location-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'runner_locations',
+          filter: `order_id=eq.${orderId}`,
+        },
+        (payload) => {
+          const newLoc = payload.new as { lat: number; lng: number };
+          if (newLoc?.lat && newLoc?.lng) {
+            const meters = getDistanceInMeters(newLoc.lat, newLoc.lng, dropoffLat, dropoffLng);
+            const eta = calculateETA(meters);
+            setEtaInfo(eta);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [orderId, dropoffLat, dropoffLng]);
+
+  if (!etaInfo) {
+    return (
+      <View style={trackingStyles.card}>
+        <Ionicons name="bicycle" size={22} color="#8B7E74" />
+        <Text style={trackingStyles.waitingText}>กำลังรอสัญญาณ GPS สดจากผู้รับหิ้ว...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={trackingStyles.card}>
+      <View style={trackingStyles.headerRow}>
+        <View style={trackingStyles.liveBadge}>
+          <View style={trackingStyles.greenDot} />
+          <Text style={trackingStyles.liveText}>ติดตามสด (LIVE)</Text>
+        </View>
+        <Text style={trackingStyles.distanceText}>ห่างจากคุณ {etaInfo.distanceText}</Text>
+      </View>
+
+      <View style={trackingStyles.etaContainer}>
+        <Ionicons name="time" size={26} color="#FF7A30" />
+        <View>
+          <Text style={trackingStyles.etaTitle}>คาดว่าจะถึงจุดส่งในอีก</Text>
+          <Text style={trackingStyles.etaValue}>ประมาณ {etaInfo.minutes} นาที</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 const STEP_ORDER = ['pending', 'accepted', 'buying', 'bought', 'delivering', 'completed'];
 const STEP_LABELS: Record<string, string> = {
@@ -23,17 +117,23 @@ interface OrderDetail {
   item_total: number;
   fee: number;
   requester_id: string;
-  runner_id: string;
+  runner_id: string | null;
   otherPartyName: string;
   otherPartyTrust: number;
   items: { item_name: string; quantity: number }[];
   dropoffLabel: string | null;
+  storeLat: number | null;
+  storeLng: number | null;
+  storeLabel: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
 }
 
 export default function OrderDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const orderId = params.orderId as string | undefined;
+  const viewMode = params.mode as string | undefined; // รองรับการส่ง mode='runner' หรือ 'requester'
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -54,30 +154,62 @@ export default function OrderDetailScreen() {
       .from('orders')
       .select(
         `id, status, payment_mode, item_total, fee, requester_id, runner_id,
-         requester:requester_id ( name, trust_scores ( trust_score ) ),
-         runner:runner_id ( name, trust_scores ( trust_score ) ),
+         custom_store_lat, custom_store_lng, custom_store_label,
+         custom_dropoff_lat, custom_dropoff_lng, custom_dropoff_label,
          order_items ( item_name, quantity ),
-         dropoff:dropoff_id ( name ), custom_dropoff_label`
+         store:store_id ( name, lat, lng ),
+         dropoff:dropoff_id ( name, lat, lng )`
       )
       .eq('id', orderId)
       .single();
 
     if (!error && data) {
       const row = data as any;
-      const iAmRunner = uid === row.runner_id;
-      const other = iAmRunner ? row.requester : row.runner;
+      const reqId = row.requester_id ? String(row.requester_id).trim() : '';
+      const runId = row.runner_id ? String(row.runner_id).trim() : null;
+      
+      const isRunnerUser = uid && runId && String(uid).trim() === runId;
+      const otherUserId = isRunnerUser ? reqId : runId;
+      let otherName = 'ไม่ทราบชื่อ';
+      let otherTrust = 100;
+
+      if (otherUserId) {
+        const { data: otherUser } = await supabase
+          .from('users')
+          .select('name, trust_scores(trust_score)')
+          .eq('id', otherUserId)
+          .single();
+        if (otherUser) {
+          otherName = otherUser.name || 'ไม่ทราบชื่อ';
+          otherTrust = (otherUser as any).trust_scores?.[0]?.trust_score ?? 100;
+        }
+      }
+
+      const storeLat = row.store?.lat ? Number(row.store.lat) : row.custom_store_lat ? Number(row.custom_store_lat) : null;
+      const storeLng = row.store?.lng ? Number(row.store.lng) : row.custom_store_lng ? Number(row.custom_store_lng) : null;
+      const storeLabel = row.store?.name || row.custom_store_label || 'ร้านค้า';
+
+      const dropoffLat = row.dropoff?.lat ? Number(row.dropoff.lat) : row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
+      const dropoffLng = row.dropoff?.lng ? Number(row.dropoff.lng) : row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
+      const dropoffLabel = row.dropoff?.name || row.custom_dropoff_label || 'จุดส่งของ';
+
       setOrder({
         id: row.id,
         status: row.status,
         payment_mode: row.payment_mode,
         item_total: Number(row.item_total),
         fee: Number(row.fee),
-        requester_id: row.requester_id,
-        runner_id: row.runner_id,
-        otherPartyName: other?.name || 'ไม่ทราบชื่อ',
-        otherPartyTrust: other?.trust_scores?.[0]?.trust_score ?? 100,
+        requester_id: reqId,
+        runner_id: runId,
+        otherPartyName: otherName,
+        otherPartyTrust: otherTrust,
         items: row.order_items || [],
-        dropoffLabel: row.dropoff?.name || row.custom_dropoff_label || null,
+        dropoffLabel: dropoffLabel,
+        storeLat,
+        storeLng,
+        storeLabel,
+        dropoffLat,
+        dropoffLng,
       });
     }
     setLoading(false);
@@ -89,11 +221,45 @@ export default function OrderDetailScreen() {
     }, [loadOrder])
   );
 
-  const isRunner = order && myUserId === order.runner_id;
-  const isRequester = order && myUserId === order.requester_id;
+  // 🔑 ปรับแก้เงื่อนไขสิทธิ์ให้ทำงานถูกต้องแม้อยู่ในขั้นตอนทดสอบ:
+  const uidStr = myUserId ? String(myUserId).trim() : '';
+  const reqIdStr = order?.requester_id ? String(order.requester_id).trim() : '';
+  const runIdStr = order?.runner_id ? String(order.runner_id).trim() : '';
+
+  // ถ้าส่ง mode='runner' มา บังคับให้เป็น Runner ทันที หรือถ้าไอดีตรงกับ runner_id และไม่ตรงกับ requester_id
+  const isRunner = viewMode === 'runner' || (Boolean(uidStr && runIdStr && uidStr === runIdStr) && uidStr !== reqIdStr);
+  const isRequester = !isRunner;
+
   const currentStepIndex = order ? STEP_ORDER.indexOf(order.status) : -1;
 
-  // ฟังก์ชันอัปเดตสถานะ
+  const openNavigation = (lat: number | null, lng: number | null, label: string | null) => {
+    if (!lat || !lng) {
+      Alert.alert('ไม่พบพิกัด', 'สถานที่นี้ไม่ได้ระบุพิกัดบนแผนที่ไว้');
+      return;
+    }
+
+    const encodedLabel = encodeURIComponent(label || 'จุดหมาย');
+    const scheme = Platform.OS === 'ios' ? 'maps:' : 'geo:';
+    const url = Platform.select({
+      ios: `${scheme}0,0?q=${encodedLabel}@${lat},${lng}`,
+      android: `google.navigation:q=${lat},${lng}`,
+    });
+
+    const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+    Linking.canOpenURL(url!)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(url!);
+        } else {
+          Linking.openURL(webUrl);
+        }
+      })
+      .catch(() => {
+        Linking.openURL(webUrl);
+      });
+  };
+
   const updateStatus = async (newStatus: string) => {
     if (!order) return;
     setUpdating(true);
@@ -109,7 +275,6 @@ export default function OrderDetailScreen() {
     loadOrder();
   };
 
-  // ฟังก์ชันยืนยันรับเงินสด COD
   const handleConfirmCOD = async () => {
     if (!order) return;
     setUpdating(true);
@@ -131,7 +296,6 @@ export default function OrderDetailScreen() {
     }
   };
 
-  // ฟังก์ชันยกเลิกออเดอร์
   const handleCancelOrder = async () => {
     if (!order) return;
     Alert.alert('ยืนยัน', 'คุณต้องการยกเลิกคำขอฝากหิ้วนี้ใช่หรือไม่?', [
@@ -150,24 +314,6 @@ export default function OrderDetailScreen() {
         }
       }
     ]);
-  };
-
-  // ฟังก์ชันส่งเรื่องร้องเรียนข้อพิพาท
-  const handleSubmitDispute = async (reasonText: string) => {
-    if (!order || !reasonText.trim()) return;
-
-    const { error } = await supabase
-      .from('dispute_reports')
-      .insert({
-        filed_by: myUserId,
-        order_id: order.id,
-        reason: reasonText,
-        status: 'pending'
-      });
-
-    if (!error) {
-      Alert.alert('ส่งรายงานแล้ว', 'ผู้ดูแลระบบจะทำการตรวจสอบข้อพิพาทนี้โดยเร็วที่สุด');
-    }
   };
 
   if (loading) {
@@ -215,8 +361,96 @@ export default function OrderDetailScreen() {
           })}
         </View>
 
+        {/* 📡 1. มุมมองฝั่งคนฝากหิ้ว (REQUESTER) */}
+        {isRequester && (
+          <View style={{ marginVertical: 4 }}>
+            {/* LIVE TRACKING: แสดงระยะทางสด + เวลาคงเหลือ (เฉพาะตอนกำลังส่ง) */}
+            {order.status === 'delivering' && (
+              <LiveTrackingCard 
+                orderId={order.id} 
+                dropoffLat={order.dropoffLat ?? 0} 
+                dropoffLng={order.dropoffLng ?? 0} 
+              />
+            )}
+
+            {/* ปุ่มยกเลิกออเดอร์ */}
+            {order.status === 'pending' && (
+              <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={updating}>
+                <Text style={styles.cancelBtnText}>ยกเลิกออเดอร์นี้</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* ปุ่มให้คะแนนผู้รับหิ้ว */}
+            {order.status === 'completed' && (
+              <TouchableOpacity style={styles.rateBtn} onPress={() => router.push({ pathname: '/rate-rider', params: { orderId: order.id, runnerId: order.runner_id || '' } })}>
+                <Ionicons name="star" size={18} color="#FFFFFF" />
+                <Text style={styles.rateBtnText}>ให้คะแนนผู้รับหิ้ว</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* 🧭 2. มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
+        {isRunner && (
+          <View style={{ marginVertical: 4 }}>
+            {/* ศูนย์นำทาง GPS */}
+            {order.status !== 'completed' && order.status !== 'cancelled' && (
+              <View style={styles.navSection}>
+                <Text style={styles.navSectionTitle}>ศูนย์นำทาง (GPS Navigation)</Text>
+                <View style={styles.navButtonRow}>
+                  <TouchableOpacity
+                    style={[styles.navBtn, { backgroundColor: '#FF7A30' }]}
+                    onPress={() => openNavigation(order.storeLat, order.storeLng, order.storeLabel)}
+                  >
+                    <Ionicons name="cart" size={18} color="#FFFFFF" />
+                    <Text style={styles.navBtnText}>ไปร้านค้า</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.navBtn, { backgroundColor: '#2ECC71' }]}
+                    onPress={() => openNavigation(order.dropoffLat, order.dropoffLng, order.dropoffLabel)}
+                  >
+                    <Ionicons name="navigate" size={18} color="#FFFFFF" />
+                    <Text style={styles.navBtnText}>ไปจุดส่งของ</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ปุ่มเลื่อนสถานะงาน */}
+            {currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
+              <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
+                {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
+              </TouchableOpacity>
+            )}
+
+            {/* ปุ่มชำระเงิน COD */}
+            {order.payment_mode === 'cod' && order.status === 'delivering' && (
+              <View style={styles.codSection}>
+                <View style={styles.codHeader}>
+                  <Ionicons name="cash" size={20} color="#4A90E2" />
+                  <Text style={styles.codTitle}>COD Cash Settlement</Text>
+                </View>
+                <View style={styles.codAmount}>
+                  <Text style={styles.codLabel}>ยอดที่ต้องรับ</Text>
+                  <Text style={styles.codValue}>฿{order.fee.toFixed(0)}</Text>
+                </View>
+                <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmCOD} disabled={updating}>
+                  {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmButtonText}>ยืนยันการรับเงิน</Text>}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Items */}
         <View style={styles.itemsCard}>
+          {!!order.storeLabel && (
+            <View style={[styles.dropoffRow, { backgroundColor: '#FFF3EB' }]}>
+              <Ionicons name="cart" size={14} color="#FF7A30" />
+              <Text style={styles.dropoffText}>ร้านค้า: {order.storeLabel}</Text>
+            </View>
+          )}
           {!!order.dropoffLabel && (
             <View style={styles.dropoffRow}>
               <Ionicons name="location" size={14} color="#FF7A30" />
@@ -234,21 +468,7 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {/* ปุ่มยกเลิกออเดอร์สำหรับฝากซื้อ (แสดงเมื่อสถานะยังรอตอบรับ) */}
-        {isRequester && order.status === 'pending' && (
-          <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={updating}>
-            <Text style={styles.cancelBtnText}>ยกเลิกออเดอร์นี้</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Runner action buttons (advance status) - อัปเดตส้มปลดล็อกให้วิ่งได้ทั้งคู่ยกเว้นสเต็ปท้าย COD */}
-        {isRunner && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
-          <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
-            {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
-          </TouchableOpacity>
-        )}
-
-        {/* QR Code (Wallet mode) */}
+        {/* QR Code */}
         {order.payment_mode === 'wallet' && (
           <View style={styles.qrSection}>
             <View style={styles.qrContainer}>
@@ -265,30 +485,6 @@ export default function OrderDetailScreen() {
               <Text style={styles.qrHintText}>ให้ผู้ฝากสแกน QR นี้เพื่อปลดล็อกเงินและจบงาน</Text>
             )}
           </View>
-        )}
-
-        {/* COD Settlement (Runner confirms cash received) - แสดงปุ่มเขียวเฉพาะตอนถึงขั้น delivering */}
-        {order.payment_mode === 'cod' && isRunner && order.status === 'delivering' && (
-          <View style={styles.codSection}>
-            <View style={styles.codHeader}>
-              <Ionicons name="cash" size={20} color="#4A90E2" />
-              <Text style={styles.codTitle}>COD Cash Settlement</Text>
-            </View>
-            <View style={styles.codAmount}>
-              <Text style={styles.codLabel}>ยอดที่ต้องรับ</Text>
-              <Text style={styles.codValue}>฿{order.fee.toFixed(0)}</Text>
-            </View>
-            <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmCOD} disabled={updating}>
-              {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmButtonText}>ยืนยันการรับเงิน</Text>}
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {order.status === 'completed' && isRequester && (
-          <TouchableOpacity style={styles.rateBtn} onPress={() => router.push({ pathname: '/rate-rider', params: { orderId: order.id, runnerId: order.runner_id } })}>
-            <Ionicons name="star" size={18} color="#FFFFFF" />
-            <Text style={styles.rateBtnText}>ให้คะแนนผู้รับหิ้ว</Text>
-          </TouchableOpacity>
         )}
 
         {/* Other party Info */}
@@ -312,6 +508,33 @@ export default function OrderDetailScreen() {
     </SafeAreaView>
   );
 }
+
+const trackingStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F5EBE1',
+    shadowColor: '#3A2113',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+    flexDirection: 'column',
+  },
+  waitingText: { fontSize: 13, color: '#8B7E74', marginLeft: 8, lineHeight: 18 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F8F0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 6 },
+  greenDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2ECC71' },
+  liveText: { fontSize: 11, fontWeight: 'bold', color: '#2ECC71' },
+  distanceText: { fontSize: 12, fontWeight: '600', color: '#8B7E74' },
+  etaContainer: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF3EB', padding: 12, borderRadius: 12 },
+  etaTitle: { fontSize: 12, color: '#8B7E74' },
+  etaValue: { fontSize: 16, fontWeight: 'bold', color: '#FF7A30' },
+});
 
 const styles = StyleSheet.create({
   container: { 
@@ -379,6 +602,40 @@ const styles = StyleSheet.create({
     fontWeight: '600', 
     fontSize: 15 
   },
+  navSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F5EBE1',
+    elevation: 1,
+  },
+  navSectionTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#3A2113',
+    marginBottom: 10,
+  },
+  navButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  navBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  navBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
   itemsCard: {
     marginHorizontal: 16, 
     marginBottom: 16, 
@@ -407,7 +664,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3EB', 
     padding: 10, 
     borderRadius: 10, 
-    marginBottom: 12 
+    marginBottom: 8 
   },
   dropoffText: { 
     fontSize: 13, 

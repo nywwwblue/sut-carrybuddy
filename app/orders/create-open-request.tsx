@@ -48,11 +48,19 @@ export default function CreateOpenRequest() {
         requester_id: userData.user.id,
         post_id: null,
         runner_id: null,
+        
+        // 🏪 ส่วนร้านค้า ( Store ) - แก้ไขให้บันทึกทั้ง Preset และ Custom
         store_id: store.type === 'preset' ? store.id : null,
+        custom_store_lat: store.type === 'custom' ? store.lat : null,
+        custom_store_lng: store.type === 'custom' ? store.lng : null,
+        custom_store_label: store.type === 'custom' ? store.label : null,
+
+        // 🏠 ส่วนจุดส่ง ( Dropoff )
         dropoff_id: dropoff.type === 'preset' ? dropoff.id : null,
         custom_dropoff_lat: dropoff.type === 'custom' ? dropoff.lat : null,
         custom_dropoff_lng: dropoff.type === 'custom' ? dropoff.lng : null,
         custom_dropoff_label: dropoff.type === 'custom' ? dropoff.label : null,
+
         payment_mode: 'wallet',
         item_total: itemTotal,
         fee,
