@@ -18,14 +18,13 @@ interface ShoppingItem {
 export default function ShoppingListScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const totalFee = params.totalFee ? Number(params.totalFee) : 0;
-  
-  // แปลง orderIds ที่ส่งพ่วงมาแบบ Real
-  const orderIds: string[] = params.orderIds ? JSON.parse(params.orderIds as string) : [];
+  const paramFee = params.totalFee ? Number(params.totalFee) : 0;
 
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [storeName, setStoreName] = useState('พิกัดร้านค้า');
   const [dropoffName, setDropoffName] = useState('จุดส่งปลายทาง');
+  const [totalFee, setTotalFee] = useState<number>(paramFee);
+  const [orderCount, setOrderCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   // Modal สำหรับแก้ไขราคาจริง
@@ -35,36 +34,77 @@ export default function ShoppingListScreen() {
 
   useEffect(() => {
     const fetchRealData = async () => {
-      if (orderIds.length === 0) {
+      setLoading(true);
+
+      // 1. จัดการแยกรับ orderIds จากพารามิเตอร์ (ถ้ามี)
+      let targetOrderIds: string[] = [];
+      if (params.orderIds) {
+        try {
+          if (typeof params.orderIds === 'string') {
+            targetOrderIds = JSON.parse(params.orderIds);
+          } else if (Array.isArray(params.orderIds)) {
+            targetOrderIds = params.orderIds as string[];
+          }
+        } catch (e) {
+          targetOrderIds = [params.orderIds as string];
+        }
+      } else if (params.orderId) {
+        targetOrderIds = [params.orderId as string];
+      }
+
+      // 2. ถ้าไม่มี orderIds ส่งมาจาก พารามิเตอร์ ให้ดึงออเดอร์ทั้งหมดของไรเดอร์คนนี้ที่กำลังดำเนินการอยู่ (Accepted / In_Progress)
+      if (targetOrderIds.length === 0) {
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData.user) {
+          const { data: activeOrders } = await supabase
+            .from('orders')
+            .select('id, fee')
+            .eq('runner_id', userData.user.id)
+            .not('status', 'in', '("completed","cancelled")'); // ดึงทุกสถานะยกเว้นที่เสร็จหรือยกเลิกแล้ว
+
+          if (activeOrders && activeOrders.length > 0) {
+            targetOrderIds = activeOrders.map(o => o.id);
+            const calculatedFee = activeOrders.reduce((sum, o) => sum + Number(o.fee || 0), 0);
+            setTotalFee(calculatedFee);
+          }
+        }
+      } else if (paramFee > 0) {
+        setTotalFee(paramFee);
+      }
+
+      // ถ้าไม่มีงานค้างเลย
+      if (targetOrderIds.length === 0) {
+        setItems([]);
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      setOrderCount(targetOrderIds.length);
 
-      // 1. ดึงข้อมูลรายการสินค้า (order_items) พร้อมชื่อลูกค้าจริงจากตาราง orders และ profiles
+      // 3. ดึงรายการสินค้าทั้งหมด (order_items) จากทั้งคำขอแบบเปิดและแบบพ่วง
       const { data: itemData, error: itemError } = await supabase
         .from('order_items')
         .select(`
-          id, order_id, item_name, quantity, price, is_picked,
+          id, order_id, item_name, quantity, actual_price, est_price, is_bought,
           order:order_id (
             id,
+            fee,
             store:store_id ( name ),
             dropoff:dropoff_id ( name ),
             custom_dropoff_label,
             requester:requester_id ( name )
           )
         `)
-        .in('order_id', orderIds);
+        .in('order_id', targetOrderIds);
 
       if (!itemError && itemData && itemData.length > 0) {
         const rows = itemData as any[];
         
-        // ดึงชื่อร้านและจุดส่งจากออเดอร์แรกมาแสดงที่หัวข้อ
+        // ดึงชื่อร้านและจุดส่งมาแสดงที่แถบหัวข้อ
         const firstOrder = rows[0]?.order;
         if (firstOrder) {
           setStoreName(firstOrder.store?.name || 'ร้านค้า');
-          setDropoffName(firstOrder.dropoff?.name || firstOrder.custom_dropoff_label || 'จุดส่ง');
+          setDropoffName(firstOrder.dropoff?.name || firstOrder.custom_dropoff_label || 'จุดส่งปลายทาง');
         }
 
         setItems(
@@ -75,16 +115,18 @@ export default function ShoppingListScreen() {
             avatarColor: i % 2 === 0 ? '#4A90E2' : '#9B59B6',
             itemName: `${row.item_name} (${row.quantity} ชิ้น)`,
             qty: row.quantity,
-            price: Number(row.price || 0),
+            price: Number(row.actual_price ?? row.est_price ?? 0), // ใช้ actual_price เป็นหลัก
             isPicked: row.is_picked || false,
           }))
         );
+      } else {
+        setItems([]);
       }
       setLoading(false);
     };
 
     fetchRealData();
-  }, [orderIds]);
+  }, [params.orderIds, params.orderId]);
 
   // ฟังก์ชันสลับสถานะติ๊กเลือกหยิบสินค้าจริง
   const togglePickItem = async (id: string, currentStatus: boolean) => {
@@ -113,12 +155,13 @@ export default function ShoppingListScreen() {
     setItems(prev => prev.map(i => i.id === selectedItem.id ? { ...i, price: updatedPrice } : i));
     setModalVisible(false);
 
+    // บันทึกลงฟิลด์จริงในตาราง order_items คือ actual_price
     await supabase
       .from('order_items')
-      .update({ price: updatedPrice })
+      .update({ actual_price: updatedPrice })
       .eq('id', selectedItem.id);
   };
-
+  
   const pickedCount = items.filter(i => i.isPicked).length;
   const progressPercent = items.length > 0 ? Math.round((pickedCount / items.length) * 100) : 0;
   const remainingCount = items.length - pickedCount;
@@ -137,26 +180,35 @@ export default function ShoppingListScreen() {
         {/* แสดงพิกัดร้านค้าและปลายทางจริง */}
         <View style={styles.locationBar}>
           <Ionicons name="location" size={18} color="#FF5E13" />
-          <Text style={styles.locationText}>{storeName} - Bundle {orderIds.length} orders ({dropoffName})</Text>
+          <Text style={styles.locationText}>
+            {storeName} {orderCount > 1 ? `- Bundle ${orderCount} orders` : ''} ({dropoffName})
+          </Text>
         </View>
 
         {loading ? (
           <ActivityIndicator color="#FF7A30" style={{ marginTop: 20 }} />
         ) : items.length === 0 ? (
-          <Text style={styles.emptyText}>ไม่พบรายการสินค้าจริงในออเดอร์นี้</Text>
+          <Text style={styles.emptyText}>ไม่พบรายการสินค้าที่ต้องซื้อขณะนี้</Text>
         ) : (
           items.map((item) => (
             <View key={item.id} style={styles.itemCard}>
-              {/* กดที่ชื่อเพื่อเปิดดูรายละเอียดออเดอร์เชิงลึกจริง */}
+              {/* ช่องติ๊กซ้ายสุด สำหรับติ๊กเช็คลิสต์สถานะสินค้า */}
               <TouchableOpacity 
-                style={styles.itemMainClick}
-                onPress={() => router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } } as any)}
+                style={styles.checkboxTouch} 
+                onPress={() => togglePickItem(item.id, item.isPicked)}
                 activeOpacity={0.8}
               >
                 <View style={[styles.checkbox, item.isPicked && styles.checkboxChecked]}>
                   {item.isPicked && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
                 </View>
+              </TouchableOpacity>
 
+              {/* ส่วนรูปอวาตาร์และชื่อสินค้า: กดตรงนี้เพื่อเข้าไปดูรายละเอียดออเดอร์เชิงลึก */}
+              <TouchableOpacity 
+                style={styles.itemMainClick}
+                onPress={() => router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } } as any)}
+                activeOpacity={0.8}
+              >
                 <View style={[styles.avatarCircle, { backgroundColor: item.avatarColor }]}>
                   <Text style={styles.avatarText}>{item.ownerName.slice(0, 2)}</Text>
                 </View>
@@ -167,11 +219,6 @@ export default function ShoppingListScreen() {
                   </Text>
                   <Text style={styles.itemPriceSub}>ราคาจริง: ฿{item.price}</Text>
                 </View>
-              </TouchableOpacity>
-
-              {/* ปุ่มติ๊กสถานะหยิบสินค้า */}
-              <TouchableOpacity style={styles.checkToggleBtn} onPress={() => togglePickItem(item.id, item.isPicked)}>
-                <Ionicons name={item.isPicked ? "checkbox" : "square-outline"} size={22} color={item.isPicked ? "#2ECC71" : "#D0C4B8"} />
               </TouchableOpacity>
 
               {/* ปุ่มแก้ราคาจริง */}
@@ -204,12 +251,11 @@ export default function ShoppingListScreen() {
         </View>
 
         <TouchableOpacity 
-          style={[styles.actionSubmitBtn, remainingCount === 0 && styles.btnActiveSuccess]}
-          disabled={remainingCount > 0}
+          style={[styles.actionSubmitBtn, styles.btnActiveSuccess]}
           onPress={() => router.replace('/(runner-tabs)')}
         >
-          <Text style={[styles.actionSubmitBtnText, remainingCount === 0 && styles.btnTextSuccess]}>
-            {remainingCount > 0 ? `รออีก ${remainingCount} รายการ` : 'หยิบครบแล้ว ไปส่งของเลย!'}
+          <Text style={[styles.actionSubmitBtnText, styles.btnTextSuccess]}>
+            เสร็จสิ้น / กลับหน้าหลัก
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -246,6 +292,11 @@ export default function ShoppingListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFBF7' },
+  checkboxTouch: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   headerBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderColor: '#F5EBE1', gap: 12 },
   backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },

@@ -20,6 +20,8 @@ export default function CreateOpenRequest() {
   const [offerFee, setOfferFee] = useState('15');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  
+  const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'wallet'>('cash_on_delivery');
 
   const itemTotal = calcItemTotal(items);
 
@@ -53,7 +55,7 @@ export default function CreateOpenRequest() {
         custom_dropoff_lat: dropoff.type === 'custom' ? dropoff.lat : null,
         custom_dropoff_lng: dropoff.type === 'custom' ? dropoff.lng : null,
         custom_dropoff_label: dropoff.type === 'custom' ? dropoff.label : null,
-        payment_mode: 'wallet',
+        payment_mode: paymentMethod, // ใช้ค่าที่ผู้ใช้เลือก ('cash' หรือ 'qr')
         item_total: itemTotal,
         fee,
         status: 'pending',
@@ -137,6 +139,28 @@ export default function CreateOpenRequest() {
           onChangeText={setOfferFee}
         />
         <Text style={styles.feeHint}>ตั้งราคาเองได้ ยิ่งให้เยอะยิ่งมีคนรับเร็ว (แนะนำ 15-25฿)</Text>
+
+        {/* ส่วนเลือกวิธีการชำระเงิน (ปรับให้ตรงกับแอปเรา: จ่ายปลายทาง / เป๋าเงินในแอป) */}
+        <Text style={[styles.label, { marginTop: 16 }]}>วิธีการชำระเงิน</Text>
+        <View style={styles.paymentRow}>
+          <TouchableOpacity 
+            style={[styles.paymentOption, paymentMethod === 'cash_on_delivery' && styles.paymentOptionActive]}
+            onPress={() => setPaymentMethod('cash_on_delivery' as any)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="wallet-outline" size={20} color={paymentMethod === 'cash_on_delivery' ? '#FF7A30' : '#8B7E74'} />
+            <Text style={[styles.paymentText, paymentMethod === 'cash_on_delivery' && styles.paymentTextActive]}>จ่ายปลายทาง</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.paymentOption, paymentMethod === 'wallet' && styles.paymentOptionActive]}
+            onPress={() => setPaymentMethod('wallet')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="card-outline" size={20} color={paymentMethod === 'wallet' ? '#FF7A30' : '#8B7E74'} />
+            <Text style={[styles.paymentText, paymentMethod === 'wallet' && styles.paymentTextActive]}>เป๋าเงินในแอป</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.summaryBox}>
           <View style={styles.summaryRow}>
@@ -266,6 +290,35 @@ const styles = StyleSheet.create({
     color: '#8B7E74', 
     marginTop: 6,
     fontWeight: '500'
+  },
+  /* สไตล์สำหรับปุ่มเลือกวิธีการชำระเงิน */
+  paymentRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  paymentOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F5EBE1',
+    borderRadius: 14,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  paymentOptionActive: {
+    borderColor: '#FF7A30',
+    backgroundColor: '#FFF5EF',
+  },
+  paymentText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8B7E74',
+  },
+  paymentTextActive: {
+    color: '#FF7A30',
   },
   summaryBox: {
     backgroundColor: '#FFFFFF', 

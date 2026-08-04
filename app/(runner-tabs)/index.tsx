@@ -163,9 +163,13 @@ export default function RunnerHomeScreen() {
 
     const channel = supabase
       .channel(`runner-live-orders-${activePostId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `post_id=eq.${activePostId}` }, () => {
-        loadLiveIncomingOrders(activePostId);
-      })
+      .on(
+        'postgres_changes', 
+        { event: '*', schema: 'public', table: 'orders', filter: `post_id=eq.${activePostId}` }, 
+        () => {
+          loadLiveIncomingOrders(activePostId);
+        }
+      )
       .subscribe();
 
     return () => {
@@ -222,7 +226,7 @@ export default function RunnerHomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 🛠️ ปุ่มแจ้งเตือนด่วนแถบสีส้มลอยเมื่อบอร์ดด่วนออนไลน์อยู่ */}
+        {/*ปุ่มแจ้งเตือนด่วนแถบสีส้มลอยเมื่อบอร์ดด่วนออนไลน์อยู่ */}
         {activePostId && (
           <TouchableOpacity 
             style={styles.flashOnlineBadge}
@@ -264,7 +268,16 @@ export default function RunnerHomeScreen() {
           
           <TouchableOpacity 
             style={styles.actionCard} 
-            onPress={() => activePostId ? setLiveModalVisible(true) : router.push('/flash/flash-controller')}
+            onPress={() => {
+              if (activePostId) {
+                router.push({
+                  pathname: '/flash/flash-live' as any,
+                  params: { postId: activePostId }
+                });
+              } else {
+                router.push('/flash/flash-controller');
+              }
+            }}
           >
             <Ionicons name="flash-outline" size={22} color="#FF7A30" />
             <Text style={styles.actionCardText}>
@@ -320,7 +333,7 @@ export default function RunnerHomeScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* 🛠️ 2. แปะหน้าต่างโมดอลป๊อปอัปสถานะสดไว้ล่างสุดของสกรีน */}
+      {/*แปะหน้าต่างโมดอลป๊อปอัปสถานะสดไว้ล่างสุดของสกรีน */}
       <FlashLiveModal
         visible={liveModalVisible}
         timeLeft={timeLeft}

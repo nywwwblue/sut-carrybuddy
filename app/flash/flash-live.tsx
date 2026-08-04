@@ -107,6 +107,21 @@ export default function FlashLiveScreen() {
     }
   };
 
+  // ฟังก์ชันสำหรับกดปิดบอร์ดด้วยตัวเอง
+  const handleManualCloseFlash = async () => {
+    if (!flashPostId) {
+      router.replace('/(runner-tabs)');
+      return;
+    }
+
+    // อัปเดตสถานะปิดในฐานข้อมูลทั้ง 2 ตาราง
+    await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
+    await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
+
+    Alert.alert('ปิดบอร์ดสำเร็จ', 'คุณได้ปิดรับออเดอร์ด่วนเรียบร้อยแล้ว');
+    router.replace('/(runner-tabs)');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerBox}>
@@ -146,6 +161,14 @@ export default function FlashLiveScreen() {
           disabled={incomingOrders.length === 0}
         >
           <Text style={styles.mainBundleBtnText}>รับทั้งหมด Bundle {totalBundleFee}฿</Text>
+        </TouchableOpacity>
+
+        {/* เพิ่มปุ่มปิดบอร์ดตรงนี้ */}
+        <TouchableOpacity 
+          style={[styles.mainBundleBtn, { backgroundColor: '#E74C3C', marginTop: 12 }]} 
+          onPress={handleManualCloseFlash}
+        >
+          <Text style={styles.mainBundleBtnText}>ปิดบอร์ด Flash Buy</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
