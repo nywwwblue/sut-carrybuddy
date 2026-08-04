@@ -1,100 +1,109 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, Alert } from 'react-native';
+import { CameraView, Camera } from 'expo-camera';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { ScreenHeader } from '@/components/ScreenHeader';
 
-export default function QRScanner() {
+export default function QRScannerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const orderId = params.orderId ? Number(params.orderId) : null;
 
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [scanned, setScanned] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
-  const handleSimulateScan = () => setScanned(true);
+  // ขออนุญาตใช้งานกล้องจากผู้ใช้
+  useEffect(() => {
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+    })();
+  }, []);
 
-  const handleConfirm = async () => {
-    if (!orderId) {
-      Alert.alert('ผิดพลาด', 'ไม่พบเลขออเดอร์');
-      return;
+  // เมื่อกล้องสแกนเจอ QR Code
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    if (scanned) return;
+    setScanned(true);
+
+    // ตรวจสอบว่า QR Code ที่สแกนตรงกับรูปแบบออเดอร์ของเราไหม (เช่น CARRYBUDDY-ORDER-{id})
+    const expectedData = `CARRYBUDDY-ORDER-${orderId}`;
+    
+    if (data === expectedData || data.includes(`ORDER-${orderId}`)) {
+      try {
+        // อัปเดตสถานะออเดอร์เป็น 'completed' และปลดล็อกเงินในระบบ
+        const { error } = await supabase.rpc('release_escrow_and_complete', { p_order_id: orderId });
+        
+        if (error) throw error;
+
+        Alert.alert('สำเร็จ 🎉', 'สแกน QR Code ยืนยันรับสินค้าเรียบร้อยแล้ว!', [
+          { text: 'ตกลง', onPress: () => router.replace('/(tabs)') }
+        ]);
+      } catch (err: any) {
+        Alert.alert('เกิดข้อผิดพลาด', err.message || 'ไม่สามารถบันทึกการรับสินค้าได้', [
+          { text: 'ลองใหม่', onPress: () => setScanned(false) }
+        ]);
+      }
+    } else {
+      Alert.alert('QR Code ไม่ถูกต้อง', `ข้อมูลใน QR ไม่ตรงกับออเดอร์ #${orderId} (ข้อมูลที่อ่านได้: ${data})`, [
+        { text: 'สแกนใหม่', onPress: () => setScanned(false) }
+      ]);
     }
-    setSubmitting(true);
-    const { error } = await supabase.rpc('release_escrow_and_complete', { p_order_id: orderId });
-    setSubmitting(false);
-
-    if (error) {
-      Alert.alert('ยืนยันไม่สำเร็จ', error.message);
-      return;
-    }
-
-    const { data: order } = await supabase.from('orders').select('id, runner_id').eq('id', orderId).single();
-
-    Alert.alert('สำเร็จ!', 'ยืนยันการรับของและปลดล็อกเงินเรียบร้อยแล้ว', [
-      { text: 'ให้คะแนนผู้รับหิ้ว', onPress: () => router.replace({ pathname: '/rate-rider', params: { orderId: order?.id, runnerId: order?.runner_id } }) },
-    ]);
   };
+
+  if (hasPermission === null) {
+    return <View style={styles.center}><Text>กำลังขออนุญาตใช้กล้อง...</Text></View>;
+  }
+  if (hasPermission === false) {
+    return (
+      <View style={styles.center}>
+        <Text style={{ textAlign: 'center', marginBottom: 12 }}>ไม่มีสิทธิ์เข้าถึงกล้อง กรุณาเปิดการอนุญาตกล้องในการตั้งค่ามือถือ</Text>
+        <TouchableOpacity style={styles.backBtnText} onPress={() => router.back()}>
+          <Text style={{ color: '#FF7A30', fontWeight: 'bold' }}>ย้อนกลับ</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScreenHeader title="สแกน QR Code" subtitle="รับสินค้าและปลดล็อกเงินมัดจำในระบบ" />
-
-      <View style={{ padding: 20, flex: 1, justifyContent: 'center' }}>
-        {!scanned ? (
-          <TouchableOpacity style={styles.scanBox} onPress={handleSimulateScan} activeOpacity={0.8}>
-            <View style={styles.scanIconCircle}>
-              <Ionicons name="scan" size={36} color="#FF7A30" />
-            </View>
-            <Text style={styles.scanBoxText}>กดเพื่อจำลองการเปิดกล้องสแกน QR</Text>
-            <Text style={styles.scanBoxSubText}>เมื่อรับสินค้าจากผู้รับหิ้วเรียบร้อยแล้ว</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.scanBox}>
-            <View style={[styles.scanIconCircle, { backgroundColor: '#E6F7ED' }]}>
-              <Ionicons name="checkmark-circle" size={40} color="#2ECC71" />
-            </View>
-            <Text style={styles.scanBoxText}>สแกนข้อมูล Order #{orderId} สำเร็จ</Text>
-          </View>
-        )}
-
-        {scanned && (
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.rejectBtn} onPress={() => setScanned(false)}>
-              <Text style={styles.rejectBtnText}>ข้อมูลไม่ถูกต้อง</Text>
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        barcodeScannerSettings={{
+          barcodeTypes: ["qr"],
+        }}
+      >
+        <View style={styles.overlay}>
+          {/* ส่วนหัวปิดหน้าจอ */}
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+              <Ionicons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} disabled={submitting}>
-              {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmBtnText}>ยืนยันรับสินค้า</Text>}
-            </TouchableOpacity>
+            <Text style={styles.headerTitle}>สแกน QR Code รับสินค้า</Text>
           </View>
-        )}
-      </View>
+
+          {/* กรอบเล็งสแกนตรงกลาง */}
+          <View style={styles.scanAreaContainer}>
+            <View style={styles.scanBox} />
+            <Text style={styles.scanHint}>นำกล้องไปส่องที่ QR Code ของไรเดอร์</Text>
+          </View>
+        </View>
+      </CameraView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
-  scanBox: {
-    borderWidth: 2, borderColor: '#FF7A30', borderStyle: 'dashed', borderRadius: 24,
-    paddingVertical: 60, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', gap: 10,
-    backgroundColor: '#FFFFFF', shadowColor: '#3A2113', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.02, shadowRadius: 8, elevation: 1
-  },
-  scanIconCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: '#FFF3EB',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 6
-  },
-  scanBoxText: { fontSize: 15, fontWeight: 'bold', color: '#3A2113' },
-  scanBoxSubText: { fontSize: 12, color: '#8B7E74' },
-  actionRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  rejectBtn: {
-    flex: 1, borderWidth: 1, borderColor: '#E74C3C', borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center', backgroundColor: '#FDECEC'
-  },
-  rejectBtnText: { color: '#E74C3C', fontWeight: 'bold', fontSize: 14 },
-  confirmBtn: {
-    flex: 1, backgroundColor: '#2ECC71', borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-    shadowColor: '#2ECC71', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 6, elevation: 2
-  },
-  confirmBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
+  container: { flex: 1, backgroundColor: '#000000' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  overlay: { flex: 1, justifyContent: 'space-between', padding: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 10 },
+  closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
+  scanAreaContainer: { alignItems: 'center', justifyContent: 'center', marginBottom: 60 },
+  scanBox: { width: 240, height: 240, borderWidth: 2, borderColor: '#FF7A30', borderRadius: 20, backgroundColor: 'transparent' },
+  scanHint: { color: '#FFFFFF', marginTop: 16, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  backBtnText: { padding: 10, backgroundColor: '#FFF3EB', borderRadius: 8 }
 });

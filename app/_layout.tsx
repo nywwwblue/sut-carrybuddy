@@ -66,7 +66,7 @@ function RootLayoutNav() {
         
         <Stack.Screen name="orders/create-open-request" />
         <Stack.Screen name="orders/create-order" />
-        <Stack.Screen name="orders/my-posts-management" />
+        <Stack.Screen name="orders/my-requests" />
         <Stack.Screen name="orders/order-detail" />
         <Stack.Screen name="orders/order-history" />
         <Stack.Screen name="orders/order-task-list" />
@@ -82,6 +82,7 @@ function RootLayoutNav() {
         <Stack.Screen name="runner/create-route-post" />
         <Stack.Screen name="runner/route-pooling-filter" />
         <Stack.Screen name="runner/open-requests-board" />
+        <Stack.Screen name="runner/my-posts-management" />
 
 
         <Stack.Screen name="chat-detail/[id]" />
@@ -93,6 +94,7 @@ function RootLayoutNav() {
         <Stack.Screen name="search-results" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="change-password" />
+        <Stack.Screen name="reset-password" />
         <Stack.Screen name="about" options={{ presentation: 'modal' }} />
         <Stack.Screen name="terms" options={{ presentation: 'modal' }} />
         <Stack.Screen name="privacy-policy" options={{ presentation: 'modal' }} />

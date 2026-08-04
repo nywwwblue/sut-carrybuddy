@@ -417,13 +417,6 @@ export default function OrderDetailScreen() {
               </View>
             )}
 
-            {/* ปุ่มเลื่อนสถานะงาน */}
-            {currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
-              <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
-                {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
-              </TouchableOpacity>
-            )}
-
             {/* ปุ่มชำระเงิน COD */}
             {order.payment_mode === 'cod' && order.status === 'delivering' && (
               <View style={styles.codSection}>
@@ -468,21 +461,36 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {/* QR Code */}
+        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner (อัปเดตให้แสดงผลถูกต้องหลังรวมโค้ด) */}
+        {isRunner && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
+          <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
+            {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
+          </TouchableOpacity>
+        )}
+
+        {/* QR Code (Wallet mode) */}
         {order.payment_mode === 'wallet' && (
           <View style={styles.qrSection}>
-            <View style={styles.qrContainer}>
-              <View style={styles.qrBox}>
-                <QRCode value={`CARRYBUDDY-ORDER-${order.id}`} size={140} color="#3A2113" backgroundColor="#FFFFFF" />
+            {isRunner ? (
+              <View style={styles.qrContainer}>
+                <View style={styles.qrBox}>
+                  <QRCode value={`CARRYBUDDY-ORDER-${order.id}`} size={140} color="#3A2113" backgroundColor="#FFFFFF" />
+                </View>
+                <Text style={styles.qrLabel}>QR สำหรับให้ลูกค้าสแกนรับของ (Order #{order.id})</Text>
+                <Text style={styles.qrHintText}>ให้ลูกค้าสแกน QR นี้เมื่อนำส่งสินค้าถึงมือเพื่อจบงาน</Text>
               </View>
-              <Text style={styles.qrLabel}>QR รับสินค้า Order #{order.id}</Text>
-            </View>
-            {isRequester ? (
-              <TouchableOpacity style={styles.regenerateButton} onPress={() => router.push({ pathname: '/qr-scanner', params: { orderId: order.id } })}>
-                <Text style={styles.regenerateButtonText}>สแกน QR เพื่อรับสินค้าและจบงาน</Text>
-              </TouchableOpacity>
             ) : (
-              <Text style={styles.qrHintText}>ให้ผู้ฝากสแกน QR นี้เพื่อปลดล็อกเงินและจบงาน</Text>
+              <View style={styles.qrContainer}>
+                <Text style={styles.qrLabel}>ยืนยันการรับสินค้า</Text>
+                <TouchableOpacity 
+                  style={styles.regenerateButton} 
+                  onPress={() => router.push({ pathname: '/qr-scanner', params: { orderId: order.id } })}
+                >
+                  <Ionicons name="camera" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.regenerateButtonText}>เปิดกล้องสแกน QR ของไรเดอร์</Text>
+                </TouchableOpacity>
+                <Text style={styles.qrHintText}>เมื่อได้รับสินค้าแล้ว กดปุ่มนี้เพื่อส่อง QR Code ของไรเดอร์</Text>
+              </View>
             )}
           </View>
         )}
@@ -497,7 +505,20 @@ export default function OrderDetailScreen() {
               <Text style={styles.riderName}>{order.otherPartyName}</Text>
               <Text style={styles.riderTrust}>Trust {order.otherPartyTrust}</Text>
             </View>
-            <TouchableOpacity style={styles.messageButton} onPress={() => router.push({ pathname: '/chat-detail/[id]', params: { id: String(order.id) } })}>
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={async () => {
+                const otherPartyId = isRunner ? order.requester_id : order.runner_id;
+                const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
+                  other_user_id: otherPartyId,
+                });
+                if (error || !conversationId) {
+                  Alert.alert('เปิดแชทไม่สำเร็จ', error?.message ?? 'กรุณาลองใหม่อีกครั้ง');
+                  return;
+                }
+                router.push({ pathname: '/chat-detail/[id]', params: { id: String(conversationId) } });
+              }}
+            >
               <Ionicons name="chatbubble" size={20} color="#FF7A30" />
             </TouchableOpacity>
           </View>

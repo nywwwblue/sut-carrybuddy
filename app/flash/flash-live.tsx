@@ -107,10 +107,31 @@ export default function FlashLiveScreen() {
     }
   };
 
+  // ฟังก์ชันสำหรับกดปิดบอร์ดด้วยตัวเอง
+  const handleManualCloseFlash = async () => {
+    if (!flashPostId) {
+      router.replace('/(runner-tabs)');
+      return;
+    }
+
+    // อัปเดตสถานะปิดในฐานข้อมูลทั้ง 2 ตาราง
+    await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
+    await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
+
+    Alert.alert('ปิดบอร์ดสำเร็จ', 'คุณได้ปิดรับออเดอร์ด่วนเรียบร้อยแล้ว');
+    router.replace('/(runner-tabs)');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerBox}>
-        <Text style={styles.headerTitle}>⚡ Live Flash Buy: กำลังรับออเดอร์</Text>
+        <TouchableOpacity 
+          style={styles.backBtn} 
+          onPress={() => router.replace(('/(runner-tabs)'))}
+        >
+          <Ionicons name="arrow-back" size={20} color="#3A2113" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Live Flash Buy: กำลังรับออเดอร์</Text>
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.timerCard}>
@@ -141,27 +162,49 @@ export default function FlashLiveScreen() {
         >
           <Text style={styles.mainBundleBtnText}>รับทั้งหมด Bundle {totalBundleFee}฿</Text>
         </TouchableOpacity>
+
+        {/* เพิ่มปุ่มปิดบอร์ดตรงนี้ */}
+        <TouchableOpacity 
+          style={[styles.mainBundleBtn, { backgroundColor: '#E74C3C', marginTop: 12 }]} 
+          onPress={handleManualCloseFlash}
+        >
+          <Text style={styles.mainBundleBtnText}>ปิดบอร์ด Flash Buy</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF3EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E8D5C4',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFF8EF',
   },
-  headerBox: {
+headerBox: {
+    flexDirection: 'row', // จัดเรียงปุ่มกับข้อความให้อยู่แถวเดียวกัน
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: '#E8D5C4',
+    gap: 12, // ระยะห่างระหว่างปุ่มย้อนกลับกับหัวข้อ
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#FF7A30',
+    flex: 1, // ให้ข้อความขยายเต็มพื้นที่ที่เหลือ
   },
   scrollContent: {
     padding: 20,

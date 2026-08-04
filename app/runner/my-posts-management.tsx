@@ -20,14 +20,11 @@ interface RunnerPost {
 
 export default function MyPostsManagementScreen() {
   const router = useRouter();
-  
-  // แท็บสถานะ: 'active' (เปิดรับอยู่) หรือ 'past' (ปิดรับ/จบงานแล้ว)
   const [activeTab, setActiveTab] = useState<'active' | 'past'>('active');
   const [posts, setPosts] = useState<RunnerPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
 
-  // ฟังก์ชันดึงข้อมูลตามแท็บที่เลือก
   const loadMyPosts = useCallback(async () => {
     setLoading(true);
     const { data: userData } = await supabase.auth.getUser();
@@ -38,14 +35,13 @@ export default function MyPostsManagementScreen() {
 
     let query = supabase
       .from('runner_posts')
-      .select(
-        `id, post_type, fee_per_order, max_orders, status, created_at, note,
-         store:store_id ( name ), dropoff:dropoff_id ( name ),
-         custom_origin_label`
-      )
+      .select(`
+        id, post_type, fee_per_order, max_orders, status, created_at, note,
+        store:store_id ( name ), dropoff:dropoff_id ( name ),
+        custom_origin_label
+      `)
       .eq('runner_id', userData.user.id);
 
-    // สลับเงื่อนไขตามแท็บ
     if (activeTab === 'active') {
       query = query.eq('status', 'open');
     } else {
@@ -78,9 +74,8 @@ export default function MyPostsManagementScreen() {
     }, [loadMyPosts])
   );
 
-  // ฟังก์ชันกด "ปิดรับออเดอร์" (เปลี่ยน status เป็น closed)
   const handleClosePost = (postId: number) => {
-    Alert.alert('ยืนยันการปิดรับ', 'คุณต้องการปิดรับออเดอร์ใหม่สำหรับโพสต์นี้ใช่หรือไม่? (ออเดอร์ที่รับไว้แล้วจะยังดำเนินต่อได้ปกติ)', [
+    Alert.alert('ยืนยันการปิดรับ', 'คุณต้องการปิดรับออเดอร์ใหม่สำหรับโพสต์นี้ใช่หรือไม่?', [
       { text: 'ยกเลิก', style: 'cancel' },
       {
         text: 'ยืนยัน',
@@ -104,7 +99,6 @@ export default function MyPostsManagementScreen() {
     ]);
   };
 
-  // ตัวช่วยแสดงสเตตัสข้อความกำกับของการ์ดประวัติเก่า
   const renderStatusBadge = (status: string) => {
     if (status === 'in_progress') {
       return (
@@ -122,9 +116,8 @@ export default function MyPostsManagementScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScreenHeader title="งานรับหิ้วของฉัน" subtitle="จัดการและดูประวัติโพสต์รับหิ้วทั้งหมดของคุณ" />
+      <ScreenHeader title="โพสต์รับหิ้วของฉัน" subtitle="จัดการและดูประวัติโพสต์วิ่งงานของคุณ" />
 
-      {/* แถบเมนูสลับแท็บ (Filter Tabs) */}
       <View style={styles.filterTabs}>
         <TouchableOpacity
           style={[styles.filterTab, activeTab === 'active' && styles.filterTabActive]}
@@ -151,7 +144,7 @@ export default function MyPostsManagementScreen() {
         <EmptyState 
           icon={activeTab === 'active' ? 'megaphone-outline' : 'folder-open-outline'} 
           title={activeTab === 'active' ? 'ไม่มีโพสต์ที่เปิดอยู่' : 'ไม่มีประวัติโพสต์เก่า'} 
-          subtitle={activeTab === 'active' ? 'คุณยังไม่มีโพสต์รับหิ้วที่กำลังเปิดรับออเดอร์ในขณะนี้' : 'ไม่พบประวัติการลงโพสต์รับหิ้วเก่าในระบบ'} 
+          subtitle={activeTab === 'active' ? 'คุณยังไม่มีโพสต์รับหิ้วที่กำลังเปิดรับในขณะนี้' : 'ไม่พบประวัติการลงโพสต์รับหิ้วเก่าในระบบ'} 
         />
       ) : (
         <FlatList
@@ -161,32 +154,20 @@ export default function MyPostsManagementScreen() {
           refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMyPosts} tintColor="#FF7A30" />}
           renderItem={({ item }) => (
             <View style={styles.postCard}>
-              {/* Card Header */}
               <View style={styles.cardHeader}>
                 <View style={styles.routeContainer}>
                   <Text style={styles.routeText} numberOfLines={1}>{item.storeName}</Text>
                   <Ionicons name="arrow-forward" size={14} color="#C9BBAF" style={{ marginHorizontal: 6 }} />
                   <Text style={styles.routeText} numberOfLines={1}>{item.dropoffName}</Text>
                 </View>
-                
-                {activeTab === 'active' && item.post_type === 'flash' && (
-                  <View style={styles.flashBadge}>
-                    <Ionicons name="flash" size={10} color="#FF7A30" />
-                    <Text style={styles.flashBadgeText}>ด่วน</Text>
-                  </View>
-                )}
 
                 {activeTab === 'past' && renderStatusBadge(item.status)}
               </View>
 
-              {/* Note / Detail */}
-              {!!item.note && (
-                <Text style={styles.noteText} numberOfLines={2}>“ {item.note} ”</Text>
-              )}
+              {!!item.note && <Text style={styles.noteText} numberOfLines={2}>“ {item.note} ”</Text>}
 
               <View style={styles.divider} />
 
-              {/* Info Row */}
               <View style={styles.infoRow}>
                 <View style={styles.infoItem}>
                   <Ionicons name="cash-outline" size={16} color="#8B7E74" />
@@ -198,7 +179,6 @@ export default function MyPostsManagementScreen() {
                 </View>
               </View>
 
-              {/* Action Buttons (แสดงเฉพาะแท็บ active เท่านั้น) */}
               {activeTab === 'active' && (
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
@@ -226,149 +206,26 @@ export default function MyPostsManagementScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#FFFBF7' 
-  },
-  centerContent: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
-  },
-  filterTabs: { 
-    flexDirection: 'row', 
-    gap: 10, 
-    paddingHorizontal: 16, 
-    marginBottom: 12,
-    marginTop: 4
-  },
-  filterTab: {
-    flexDirection: 'row', 
-    gap: 6, 
-    alignItems: 'center', 
-    paddingHorizontal: 14, 
-    paddingVertical: 8,
-    borderRadius: 20, 
-    backgroundColor: '#FFFFFF', 
-    borderWidth: 1, 
-    borderColor: '#E8D5C4',
-  },
-  filterTabActive: { 
-    backgroundColor: '#FF7A30', 
-    borderColor: '#FF7A30' 
-  },
-  filterTabText: { 
-    fontSize: 13, 
-    fontWeight: '600', 
-    color: '#8B7E74' 
-  },
-  filterTabTextActive: { 
-    color: '#FFFFFF' 
-  },
-  listContent: { 
-    paddingHorizontal: 16, 
-    paddingBottom: 20 
-  },
-  postCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#F5EBE1',
-    shadowColor: '#3A2113',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  routeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
-  },
-  routeText: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#3A2113',
-    maxWidth: '42%',
-  },
-  flashBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: '#FFF3EB',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  flashBadgeText: {
-    fontSize: 10,
-    color: '#FF7A30',
-    fontWeight: 'bold',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  noteText: {
-    fontSize: 13,
-    color: '#8B7E74',
-    fontStyle: 'italic',
-    marginBottom: 10,
-    backgroundColor: '#FFFDFB',
-    padding: 8,
-    borderRadius: 8,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F5EBE1',
-    marginVertical: 4,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginVertical: 10,
-  },
-  infoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  infoLabel: {
-    fontSize: 13,
-    color: '#5C4638',
-    fontWeight: '500',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 4,
-  },
-  closeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FDECEC',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  closeBtnText: {
-    color: '#E74C3C',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
+  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  filterTabs: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 12, marginTop: 4 },
+  filterTab: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8D5C4' },
+  filterTabActive: { backgroundColor: '#FF7A30', borderColor: '#FF7A30' },
+  filterTabText: { fontSize: 13, fontWeight: '600', color: '#8B7E74' },
+  filterTabTextActive: { color: '#FFFFFF' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 20 },
+  postCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#F5EBE1', elevation: 1 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  routeContainer: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  routeText: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', maxWidth: '42%' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  statusBadgeText: { fontSize: 11, fontWeight: 'bold' },
+  noteText: { fontSize: 13, color: '#8B7E74', fontStyle: 'italic', marginBottom: 10, backgroundColor: '#FFFDFB', padding: 8, borderRadius: 8 },
+  divider: { height: 1, backgroundColor: '#F5EBE1', marginVertical: 4 },
+  infoRow: { flexDirection: 'row', gap: 16, marginVertical: 10 },
+  infoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoLabel: { fontSize: 13, color: '#5C4638', fontWeight: '500' },
+  actionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 },
+  closeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FDECEC', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  closeBtnText: { color: '#E74C3C', fontSize: 13, fontWeight: 'bold' },
 });
