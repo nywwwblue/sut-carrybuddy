@@ -9,7 +9,7 @@ const SUT_LAT = 14.8818;
 const SUT_LNG = 102.0173;
 
 export type PickedLocation =
-  | { type: 'preset'; id: number; name: string }
+  | { type: 'preset'; id: number; name: string; lat?: number; lng?: number }
   | { type: 'custom'; lat: number; lng: number; label: string };
 
 interface Props {
@@ -21,7 +21,8 @@ interface Props {
 
 type Mode = 'preset' | 'current' | 'pin';
 
-const PIN_MAP_HTML = (lat: number, lng: number) => `
+// 🎨 HTML Leaflet ฉบับปรับปรุง (ใช้ Custom Red Marker เด่นชัด + ลากหมุดลื่นไหล ไม่กระตุก)
+const PIN_MAP_HTML = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -33,20 +34,34 @@ const PIN_MAP_HTML = (lat: number, lng: number) => `
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([${lat}, ${lng}], 16);
+    const map = L.map('map').setView([${SUT_LAT}, ${SUT_LNG}], 15);
+    
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+      attribution: '&copy; OpenStreetMap'
     }).addTo(map);
-    let marker = L.marker([${lat}, ${lng}], { draggable: true }).addTo(map);
+
+    // หมุดสีแดงเด่นชัดสำหรับจุดปักหมุด custom 🔴
+    const redIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+    });
+
+    let marker = L.marker([${SUT_LAT}, ${SUT_LNG}], { draggable: true, icon: redIcon }).addTo(map);
 
     function sendPosition(pos) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ lat: pos.lat, lng: pos.lng }));
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ lat: pos.lat, lng: pos.lng }));
+      }
     }
+
     marker.on('dragend', () => sendPosition(marker.getLatLng()));
+    
     map.on('click', (e) => {
       marker.setLatLng(e.latlng);
       sendPosition(e.latlng);
     });
+
     sendPosition(marker.getLatLng());
   </script>
 </body>
@@ -56,21 +71,27 @@ const PIN_MAP_HTML = (lat: number, lng: number) => `
 export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props) {
   const [mode, setMode] = useState<Mode>('preset');
   const [searchText, setSearchText] = useState('');
-  const [presets, setPresets] = useState<{ id: number; name: string; location_name?: string; zone?: string }[]>([]);
+  const [presets, setPresets] = useState<{ id: number; name: string; category?: string; zone?: string; lat?: number; lng?: number }[]>([]);
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [loadingGps, setLoadingGps] = useState(false);
   const [pinCoords, setPinCoords] = useState({ lat: SUT_LAT, lng: SUT_LNG });
   const [pinLabel, setPinLabel] = useState('');
 
+  // ดึง Preset จาก Supabase
   const loadPresets = useCallback(async () => {
     setLoadingPresets(true);
     const table = kind === 'store' ? 'stores' : 'dropoff_locations';
-    const { data } = await supabase
+    const selectFields = kind === 'store' ? 'id, name, category, lat, lng' : 'id, name, zone, lat, lng';
+
+    const { data, error } = await supabase
       .from(table)
-      .select(kind === 'store' ? 'id, name, location_name' : 'id, name, zone')
+      .select(selectFields)
       .ilike('name', `%${searchText}%`)
       .limit(30);
-    if (data) setPresets(data as any[]);
+
+    if (!error && data) {
+      setPresets(data as any[]);
+    }
     setLoadingPresets(false);
   }, [kind, searchText]);
 
@@ -81,18 +102,59 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
     }
   }, [visible, mode, loadPresets]);
 
+  // ใช้ตำแหน่ง GPS ปัจจุบัน + ดึงชื่อสถานที่จริง (Reverse Geocoding)
   const handleUseCurrentLocation = async () => {
     setLoadingGps(true);
+    
+    // 1. ขออนุญาตเข้าถึงสิทธิ์ Location
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
       setLoadingGps(false);
       Alert.alert('ไม่ได้รับอนุญาต', 'กรุณาอนุญาตการเข้าถึงตำแหน่งเพื่อใช้ฟีเจอร์นี้');
       return;
     }
+
     try {
-      const pos = await Location.getCurrentPositionAsync({});
+      // 2. ดึงพิกัด GPS ปัจจุบัน
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High, // เพิ่มความแม่นยำของพิกัด
+      });
+
+      const { latitude, longitude } = pos.coords;
+
+      // 3. 🔍 แปลงพิกัด (Lat, Lng) เป็นชื่อสถานที่/ที่อยู่จริง (Reverse Geocode)
+      const reverseResult = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude,
+      });
+
+      let readableAddress = 'ตำแหน่งปัจจุบันของฉัน';
+
+      if (reverseResult && reverseResult.length > 0) {
+        const place = reverseResult[0];
+        
+        // จัดรูปแบบชื่อสถานที่ให้เข้าใจง่าย
+        const nameParts = [
+          place.name || place.street,
+          place.district || place.subregion,
+          place.city,
+        ].filter(Boolean); // ลบค่าที่เป็น null/undefined ออก
+
+        if (nameParts.length > 0) {
+          readableAddress = nameParts.join(', ');
+        }
+      }
+
       setLoadingGps(false);
-      onSelect({ type: 'custom', lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'ตำแหน่งปัจจุบันของฉัน' });
+
+      // 4. ส่งข้อมูลทั้ง พิกัดจริง และ ชื่อสถานที่จริง กลับไป
+      onSelect({
+        type: 'custom',
+        lat: latitude,
+        lng: longitude,
+        label: readableAddress, // <-- จะได้ชื่อที่อยู่จริง เช่น "ถนนมหาวิทยาลัย, เมืองนครราชสีมา"
+      });
+
       onClose();
     } catch (e) {
       setLoadingGps(false);
@@ -100,12 +162,18 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
     }
   };
 
+  // ยืนยันการปักหมุดเอง
   const handleConfirmPin = () => {
     if (!pinLabel.trim()) {
       Alert.alert('ใส่ชื่อสถานที่ก่อน', 'กรุณาตั้งชื่อจุดที่ปักหมุดไว้ เพื่อให้อีกฝ่ายเข้าใจง่าย');
       return;
     }
-    onSelect({ type: 'custom', lat: pinCoords.lat, lng: pinCoords.lng, label: pinLabel.trim() });
+    onSelect({ 
+      type: 'custom', 
+      lat: pinCoords.lat, 
+      lng: pinCoords.lng, 
+      label: pinLabel.trim() 
+    });
     onClose();
   };
 
@@ -117,7 +185,9 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
           <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
             <Ionicons name="close" size={24} color="#3A2113" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>เลือกสถานที่</Text>
+          <Text style={styles.headerTitle}>
+            {kind === 'store' ? 'เลือกหมุดร้านค้า / จุดรับ' : 'เลือกหมุดจุดส่งของ'}
+          </Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -134,14 +204,14 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
           </TouchableOpacity>
         </View>
 
-        {/* Preset List */}
+        {/* 1. Preset List */}
         {mode === 'preset' && (
           <View style={{ flex: 1 }}>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={18} color="#8B7E74" />
               <TextInput
                 style={styles.searchInput}
-                placeholder="ค้นหาสถานที่..."
+                placeholder={kind === 'store' ? 'ค้นหาร้านค้า...' : 'ค้นหาจุดส่ง...'}
                 placeholderTextColor="#B0A498"
                 value={searchText}
                 onChangeText={setSearchText}
@@ -158,15 +228,21 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
                   <TouchableOpacity
                     style={styles.presetItem}
                     onPress={() => {
-                      onSelect({ type: 'preset', id: item.id, name: item.name });
+                      onSelect({ 
+                        type: 'preset', 
+                        id: item.id, 
+                        name: item.name, 
+                        lat: item.lat, 
+                        lng: item.lng 
+                      });
                       onClose();
                     }}
                   >
                     <Ionicons name="location" size={18} color="#FF7A30" />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.presetName}>{item.name}</Text>
-                      {!!(item.location_name || item.zone) && (
-                        <Text style={styles.presetSub}>{item.location_name || item.zone}</Text>
+                      {!!(item.category || item.zone) && (
+                        <Text style={styles.presetSub}>{item.category || item.zone}</Text>
                       )}
                     </View>
                   </TouchableOpacity>
@@ -177,7 +253,7 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
           </View>
         )}
 
-        {/* Current Location */}
+        {/* 2. Current Location */}
         {mode === 'current' && (
           <View style={styles.centerContent}>
             <Ionicons name="navigate-circle" size={64} color="#FF7A30" />
@@ -188,14 +264,15 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
           </View>
         )}
 
-        {/* Pin on Map */}
+        {/* 3. Pin on Map */}
         {mode === 'pin' && (
           <View style={{ flex: 1 }}>
             <View style={styles.pinMapContainer}>
               <WebView
-                source={{ html: PIN_MAP_HTML(pinCoords.lat, pinCoords.lng) }}
+                source={{ html: PIN_MAP_HTML }}
                 style={{ flex: 1 }}
                 javaScriptEnabled
+                domStorageEnabled
                 originWhitelist={['*']}
                 onMessage={(e) => {
                   try {
@@ -205,7 +282,7 @@ export function LocationPickerModal({ visible, kind, onClose, onSelect }: Props)
                 }}
               />
             </View>
-            <Text style={styles.pinHint}>แตะบนแผนที่หรือลากหมุดเพื่อเลือกตำแหน่ง</Text>
+            <Text style={styles.pinHint}>แตะบนแผนที่หรือลากหมุดสีแดง 🔴 เพื่อเลือกตำแหน่ง</Text>
             <TextInput
               style={styles.labelInput}
               placeholder="ตั้งชื่อจุดนี้ เช่น 'หน้าหอพัก B'"
