@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
 interface ChatPreview {
-  orderId: number;
+  conversationId: number;
   name: string;
   message: string;
   timeLabel: string;
@@ -39,34 +39,35 @@ export default function ChatListScreen() {
     }
     const uid = userData.user.id;
 
-    const { data: myOrders } = await supabase
-      .from('orders')
-      .select('id, requester:requester_id ( id, name ), runner:runner_id ( id, name )')
-      .or(`requester_id.eq.${uid},runner_id.eq.${uid}`);
+    // 1 คู่คนคุย = 1 ห้องแชท (conversation) เสมอ ไม่ว่าจะมีออเดอร์ร่วมกันกี่ครั้งก็ตาม
+    const { data: myConversations } = await supabase
+      .from('conversations')
+      .select('id, user_a_id, user_b_id, a:user_a_id ( id, name ), b:user_b_id ( id, name )')
+      .or(`user_a_id.eq.${uid},user_b_id.eq.${uid}`);
 
-    if (!myOrders || myOrders.length === 0) {
+    if (!myConversations || myConversations.length === 0) {
       setChats([]);
       setLoading(false);
       return;
     }
 
-    const orderIds = myOrders.map((o: any) => o.id);
+    const conversationIds = myConversations.map((c: any) => c.id);
     const { data: messages } = await supabase
       .from('chat_messages')
-      .select('order_id, content, created_at, sender_id, is_read')
-      .in('order_id', orderIds)
+      .select('conversation_id, content, created_at, sender_id, is_read')
+      .in('conversation_id', conversationIds)
       .order('created_at', { ascending: false });
 
     const seen = new Set<number>();
     const previews: ChatPreview[] = [];
     (messages || []).forEach((msg: any) => {
-      if (seen.has(msg.order_id)) return;
-      seen.add(msg.order_id);
-      const order = myOrders.find((o: any) => o.id === msg.order_id) as any;
-      const iAmRunner = order?.runner?.id === uid;
-      const other = iAmRunner ? order?.requester : order?.runner;
+      if (!msg.conversation_id || seen.has(msg.conversation_id)) return;
+      seen.add(msg.conversation_id);
+      const conv = myConversations.find((c: any) => c.id === msg.conversation_id) as any;
+      const iAmUserA = conv?.user_a_id === uid;
+      const other = iAmUserA ? conv?.b : conv?.a;
       previews.push({
-        orderId: msg.order_id,
+        conversationId: msg.conversation_id,
         name: other?.name || 'ไม่ทราบชื่อ',
         message: msg.content || '',
         timeLabel: timeAgo(msg.created_at),
@@ -100,9 +101,9 @@ export default function ChatListScreen() {
           ) : (
             chats.map((chat) => (
               <TouchableOpacity
-                key={chat.orderId}
+                key={chat.conversationId}
                 style={[styles.chatItem, chat.unread && styles.chatItemUnread]}
-                onPress={() => router.push({ pathname: '/chat-detail/[id]', params: { id: String(chat.orderId) } })}
+                onPress={() => router.push({ pathname: '/chat-detail/[id]', params: { id: String(chat.conversationId) } })}
                 activeOpacity={0.9}
               >
                 <View style={[styles.avatar, { backgroundColor: chat.avatarColor }]}>

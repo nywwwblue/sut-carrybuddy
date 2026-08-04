@@ -17,13 +17,18 @@ export default function ForgotPasswordScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    // redirectTo ชี้ไปหน้าเว็บ (โฮสต์บน GitHub Pages) แทนการกลับเข้าแอปโดยตรง
+    // เพราะ Expo Go เปิด deep link จากอีเมลไม่เสถียร — หน้าเว็บเปิดในเบราว์เซอร์ปกติได้ชัวร์กว่า
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://sutcarrybuddy.netlify.app/',
+    });
     setLoading(false);
 
     if (error) {
       Alert.alert('ส่งลิงก์ไม่สำเร็จ', error.message);
       return;
     }
+
     setSent(true);
   };
 
@@ -44,7 +49,7 @@ export default function ForgotPasswordScreen() {
               <Ionicons name="mail-open" size={40} color="#FF7A30" />
               <Text style={styles.successTitle}>ส่งลิงก์รีเซ็ตแล้ว</Text>
               <Text style={styles.successDesc}>
-                ตรวจสอบอีเมล {email} แล้วกดลิงก์เพื่อตั้งรหัสผ่านใหม่
+                ตรวจสอบอีเมล {email} แล้วกดลิงก์เพื่อตั้งรหัสผ่านใหม่ (ลิงก์จะเปิดในเบราว์เซอร์)
               </Text>
               <TouchableOpacity style={styles.submitButton} onPress={() => router.replace('/login')}>
                 <Text style={styles.submitButtonText}>กลับไปหน้าเข้าสู่ระบบ</Text>
