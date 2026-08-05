@@ -4,6 +4,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import ReportModal from '@/components/ReportModal';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface Message {
   id: number;
@@ -120,14 +121,14 @@ export default function ChatDetail() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={20} color="#3A2113" />
+            <Ionicons name="arrow-back" size={20} color={ORDER_THEME.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
             <Text style={styles.headerTitle}>{otherName}</Text>
           </View>
 
           <TouchableOpacity onPress={() => setReportVisible(true)} style={{ padding: 6 }}>
-            <Ionicons name="flag-outline" size={22} color="#8B7E74" />
+            <Ionicons name="flag-outline" size={22} color={ORDER_THEME.textSecondary} />
           </TouchableOpacity>
         </View>
 
@@ -160,13 +161,13 @@ export default function ChatDetail() {
             <TextInput
               style={styles.input}
               placeholder="พิมพ์ข้อความคุยรายละเอียด..."
-              placeholderTextColor="#B0A498"
+              placeholderTextColor={ORDER_THEME.textMuted}
               value={newMessage}
               onChangeText={setNewMessage}
               multiline
             />
             <TouchableOpacity style={styles.sendBtn} onPress={handleSendMessage} disabled={!newMessage.trim()}>
-              <Ionicons name="send" size={18} color={newMessage.trim() ? '#FF7A30' : '#E8D5C4'} />
+              <Ionicons name="send" size={18} color={newMessage.trim() ? ORDER_THEME.accent : ORDER_THEME.border} />
             </TouchableOpacity>
           </View>
         </View>
@@ -184,34 +185,34 @@ export default function ChatDetail() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   header: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F5EBE1', gap: 12,
+    backgroundColor: ORDER_THEME.surface, borderBottomWidth: 1, borderBottomColor: ORDER_THEME.borderSoft, gap: 12,
   },
-  backBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: ORDER_THEME.surfaceSoft, alignItems: 'center', justifyContent: 'center' },
   headerInfo: { flex: 1 },
-  headerTitle: { fontSize: 15, fontWeight: 'bold', color: '#3A2113' },
-  headerStatus: { fontSize: 12, color: '#8B7E74', marginTop: 2 },
+  headerTitle: { fontSize: 15, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
+  headerStatus: { fontSize: 12, color: ORDER_THEME.textSecondary, marginTop: 2 },
   messagesContainer: { flex: 1 },
   messagesContent: { paddingHorizontal: 16, paddingVertical: 16 },
   messageWrapper: { flexDirection: 'row', marginBottom: 14 },
   messageWrapperMe: { justifyContent: 'flex-end' },
   messageWrapperOther: { justifyContent: 'flex-start' },
   messageBubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
-  messageBubbleMe: { backgroundColor: '#FF7A30', borderBottomRightRadius: 4, alignSelf: 'flex-end' },
-  messageBubbleOther: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#F5EBE1' },
+  messageBubbleMe: { backgroundColor: ORDER_THEME.accent, borderBottomRightRadius: 4, alignSelf: 'flex-end' },
+  messageBubbleOther: { backgroundColor: ORDER_THEME.surface, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: ORDER_THEME.borderSoft },
   messageText: { fontSize: 14, lineHeight: 20 },
   messageTextMe: { color: '#FFFFFF', fontWeight: '500' },
-  messageTextOther: { color: '#3A2113' },
-  timestamp: { fontSize: 10, marginTop: 4, color: '#B0A498' },
+  messageTextOther: { color: ORDER_THEME.textPrimary },
+  timestamp: { fontSize: 10, marginTop: 4, color: ORDER_THEME.textMuted },
   timestampMe: { textAlign: 'right', marginRight: 2 },
   timestampOther: { textAlign: 'left', marginLeft: 2 },
-  inputContainer: { paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#F5EBE1' },
+  inputContainer: { paddingHorizontal: 16, paddingVertical: 12, backgroundColor: ORDER_THEME.surface, borderTopWidth: 1, borderTopColor: ORDER_THEME.borderSoft },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   input: {
-    flex: 1, backgroundColor: '#FFFBF7', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
-    fontSize: 14, color: '#3A2113', maxHeight: 80, borderWidth: 1, borderColor: '#F5EBE1'
+    flex: 1, backgroundColor: ORDER_THEME.surfaceSoft, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
+    fontSize: 14, color: ORDER_THEME.textPrimary, maxHeight: 80, borderWidth: 1, borderColor: ORDER_THEME.borderSoft
   },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: ORDER_THEME.surfaceSoft, alignItems: 'center', justifyContent: 'center' },
 });

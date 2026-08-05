@@ -4,6 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 const COD_LIMIT = 200;
 
@@ -45,6 +46,8 @@ export default function Checkout() {
   }, []);
 
   const handleConfirm = async () => {
+    if (submitting) return;
+
     if (!postId || !runnerId) {
       Alert.alert('ผิดพลาด', 'ไม่พบข้อมูลออเดอร์ กรุณาย้อนกลับไปเริ่มใหม่');
       return;
@@ -65,13 +68,14 @@ export default function Checkout() {
       return;
     }
 
+    let createdOrderId: number | null = null;
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
         post_id: postId,
         requester_id: userData.user.id,
         runner_id: runnerId,
-        payment_mode: paymentMode,
+        payment_mode: paymentMode === 'cod' ? 'cod' : 'wallet',
         item_total: itemTotal,
         fee,
         status: 'pending',
@@ -89,44 +93,47 @@ export default function Checkout() {
       return;
     }
 
-    if (items.length > 0) {
-      await supabase.from('order_items').insert(
-        items.map((i) => ({
-          order_id: order.id,
-          item_name: i.name,
-          quantity: Number(i.quantity) || 1,
-          est_price: Number(i.price) || 0,
-          note: note || null,
-        }))
-      );
-    }
+    createdOrderId = order.id;
 
-    if (paymentMode === 'wallet') {
-      try {
-        // เรียก RPC หลังบ้านจัดการโยกเงินมัดจำเข้า Escrow อย่างปลอดภัย
+    try {
+      if (items.length > 0) {
+        await supabase.from('order_items').insert(
+          items.map((i) => ({
+            order_id: order.id,
+            item_name: i.name,
+            quantity: Number(i.quantity) || 1,
+            est_price: Number(i.price) || 0,
+            note: note || null,
+          }))
+        );
+      }
+
+      if (paymentMode === 'wallet') {
         const { error: escrowError } = await supabase.rpc('lock_order_escrow', {
           p_order_id: order.id,
-          p_total_amount: total
+          p_total_amount: total,
         });
-        
+
         if (escrowError) throw escrowError;
-      } catch (err: any) {
-        setSubmitting(false);
-        Alert.alert('ทำรายการเงินไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาดในการตัดเงิน');
-        return;
       }
+
+      await supabase.from('order_status_logs').insert({
+        order_id: order.id,
+        changed_by: userData.user.id,
+        status: 'pending',
+        note: 'สร้างออเดอร์และยืนยันการชำระเงินแล้ว',
+      });
+    } catch (err: any) {
+      if (createdOrderId) {
+        await supabase.from('orders').delete().eq('id', createdOrderId);
+      }
+      setSubmitting(false);
+      Alert.alert('สร้างออเดอร์ไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาดระหว่างการสร้างคำสั่งซื้อ');
+      return;
     }
 
-    // เขียนสถานะออเดอร์ลงล็อกล็อกประวัติตามปกติ
-    await supabase.from('order_status_logs').insert({
-      order_id: order.id,
-      changed_by: userData.user.id,
-      status: 'pending',
-      note: 'สร้างออเดอร์และยืนยันการชำระเงินแล้ว',
-    });
-
     setSubmitting(false);
-    router.replace({ pathname: '/orders/order-detail', params: { orderId: order.id } });
+    router.replace({ pathname: '/orders/order-detail', params: { orderId: createdOrderId } });
   };
 
   return (
@@ -205,7 +212,7 @@ export default function Checkout() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF8EF' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
   backBtn: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFFFFF',
@@ -214,28 +221,29 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#3A2113' },
   paymentCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: '#E8D5C4',
+    backgroundColor: ORDER_THEME.surface, borderRadius: 16, padding: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: ORDER_THEME.borderSoft,
+    shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
-  paymentCardActive: { borderColor: '#FF7A30', borderWidth: 1.5, backgroundColor: '#FFFBF5' },
+  paymentCardActive: { borderColor: ORDER_THEME.accent, borderWidth: 1.5, backgroundColor: ORDER_THEME.accentSoft },
   paymentIconBox: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: '#FFE8D6',
+    width: 40, height: 40, borderRadius: 12, backgroundColor: ORDER_THEME.accentSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  paymentTitle: { fontSize: 14, fontWeight: 'bold', color: '#3A2113' },
-  paymentDesc: { fontSize: 11, color: '#8B7E74', marginTop: 2 },
-  paymentBalance: { fontSize: 12, color: '#FF7A30', fontWeight: '700', marginTop: 4 },
-  paymentLimit: { fontSize: 12, color: '#E74C3C', fontWeight: '700', marginTop: 4 },
-  summaryTitle: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', marginTop: 16, marginBottom: 10 },
+  paymentTitle: { fontSize: 14, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
+  paymentDesc: { fontSize: 11, color: ORDER_THEME.textSecondary, marginTop: 2 },
+  paymentBalance: { fontSize: 12, color: ORDER_THEME.accent, fontWeight: '700', marginTop: 4 },
+  paymentLimit: { fontSize: 12, color: ORDER_THEME.danger, fontWeight: '700', marginTop: 4 },
+  summaryTitle: { fontSize: 15, fontWeight: 'bold', color: ORDER_THEME.textPrimary, marginTop: 16, marginBottom: 10 },
   summaryCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#E8D5C4',
+    backgroundColor: ORDER_THEME.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: ORDER_THEME.borderSoft,
   },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  summaryLabel: { fontSize: 13, color: '#8B7E74' },
-  summaryValue: { fontSize: 13, fontWeight: '600', color: '#3A2113' },
-  divider: { height: 1, backgroundColor: '#F0E6DC', marginVertical: 4 },
-  totalLabel: { fontSize: 15, fontWeight: 'bold', color: '#3A2113' },
-  totalValue: { fontSize: 17, fontWeight: 'bold', color: '#FF7A30' },
-  submitBtn: { backgroundColor: '#FF7A30', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
-  submitBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
+  summaryLabel: { fontSize: 13, color: ORDER_THEME.textSecondary },
+  summaryValue: { fontSize: 13, fontWeight: '600', color: ORDER_THEME.textPrimary },
+  divider: { height: 1, backgroundColor: ORDER_THEME.borderSoft, marginVertical: 4 },
+  totalLabel: { fontSize: 15, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
+  totalValue: { fontSize: 17, fontWeight: 'bold', color: ORDER_THEME.accent },
+  submitBtn: { backgroundColor: ORDER_THEME.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
+  submitBtnText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 16 },
 });

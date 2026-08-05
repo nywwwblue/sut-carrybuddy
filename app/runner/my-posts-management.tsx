@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmptyState } from '@/components/EmptyState';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface RunnerPost {
   id: number;
@@ -151,7 +152,7 @@ export default function MyPostsManagementScreen() {
           data={posts}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMyPosts} tintColor="#FF7A30" />}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMyPosts} tintColor={ORDER_THEME.accent} />}
           renderItem={({ item }) => (
             <View style={styles.postCard}>
               <View style={styles.cardHeader}>
@@ -206,26 +207,26 @@ export default function MyPostsManagementScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   filterTabs: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 12, marginTop: 4 },
-  filterTab: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8D5C4' },
-  filterTabActive: { backgroundColor: '#FF7A30', borderColor: '#FF7A30' },
-  filterTabText: { fontSize: 13, fontWeight: '600', color: '#8B7E74' },
-  filterTabTextActive: { color: '#FFFFFF' },
+  filterTab: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: ORDER_THEME.surface, borderWidth: 1, borderColor: ORDER_THEME.border },
+  filterTabActive: { backgroundColor: ORDER_THEME.accent, borderColor: ORDER_THEME.accent },
+  filterTabText: { fontSize: 13, fontWeight: '600', color: ORDER_THEME.textSecondary },
+  filterTabTextActive: { color: ORDER_THEME.surface },
   listContent: { paddingHorizontal: 16, paddingBottom: 20 },
-  postCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#F5EBE1', elevation: 1 },
+  postCard: { backgroundColor: ORDER_THEME.surface, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: ORDER_THEME.borderSoft, elevation: 1 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   routeContainer: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-  routeText: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', maxWidth: '42%' },
+  routeText: { fontSize: 15, fontWeight: 'bold', color: ORDER_THEME.textPrimary, maxWidth: '42%' },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   statusBadgeText: { fontSize: 11, fontWeight: 'bold' },
-  noteText: { fontSize: 13, color: '#8B7E74', fontStyle: 'italic', marginBottom: 10, backgroundColor: '#FFFDFB', padding: 8, borderRadius: 8 },
-  divider: { height: 1, backgroundColor: '#F5EBE1', marginVertical: 4 },
+  noteText: { fontSize: 13, color: ORDER_THEME.textSecondary, fontStyle: 'italic', marginBottom: 10, backgroundColor: ORDER_THEME.surfaceSoft, padding: 8, borderRadius: 8 },
+  divider: { height: 1, backgroundColor: ORDER_THEME.borderSoft, marginVertical: 4 },
   infoRow: { flexDirection: 'row', gap: 16, marginVertical: 10 },
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  infoLabel: { fontSize: 13, color: '#5C4638', fontWeight: '500' },
+  infoLabel: { fontSize: 13, color: ORDER_THEME.textPrimary, fontWeight: '500' },
   actionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 },
-  closeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FDECEC', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  closeBtnText: { color: '#E74C3C', fontSize: 13, fontWeight: 'bold' },
+  closeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORDER_THEME.dangerSoft, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  closeBtnText: { color: ORDER_THEME.danger, fontSize: 13, fontWeight: 'bold' },
 });

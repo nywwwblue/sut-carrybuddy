@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Tex
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { buildSearchResultsRoute } from '@/lib/searchRouting';
 
 interface SearchResult {
   id: string;
@@ -119,6 +120,7 @@ export default function SearchResults() {
             value={searchText}
             onChangeText={setSearchText}
             autoFocus
+            onSubmitEditing={() => router.push(buildSearchResultsRoute(searchText))}
           />
           {!!searchText && (
             <TouchableOpacity onPress={() => setSearchText('')}>

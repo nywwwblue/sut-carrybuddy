@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmptyState } from '@/components/EmptyState';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface NotifItem {
   id: string;
@@ -91,7 +92,7 @@ export default function NotificationsScreen() {
       <ScreenHeader title="การแจ้งเตือน" />
 
       {loading ? (
-        <ActivityIndicator color="#FF7A30" style={{ marginTop: 40 }} />
+        <ActivityIndicator color={ORDER_THEME.accent} style={{ marginTop: 40 }} />
       ) : items.length === 0 ? (
         <EmptyState icon="notifications-off-outline" title="ยังไม่มีการแจ้งเตือน" subtitle="เมื่อสถานะคำขอฝากหิ้วเปลี่ยนไป ระบบจะแจ้งให้คุณทราบทันที" />
       ) : (
@@ -105,7 +106,7 @@ export default function NotificationsScreen() {
               onPress={() => item.orderId && router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } })}
             >
               <View style={styles.iconCircle}>
-                <Ionicons name="notifications" size={16} color="#FF7A30" />
+                <Ionicons name="notifications" size={16} color={ORDER_THEME.accent} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.notifTitle}>{item.title}</Text>
@@ -121,15 +122,15 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   notifItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF', padding: 14, borderRadius: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: '#F5EBE1', gap: 12,
-    shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 4, elevation: 1
+    backgroundColor: ORDER_THEME.surface, padding: 14, borderRadius: 16, marginBottom: 8,
+    borderWidth: 1, borderColor: ORDER_THEME.borderSoft, gap: 12,
+    shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2
   },
-  iconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
-  notifTitle: { fontSize: 13, fontWeight: '700', color: '#3A2113' },
-  notifSubtitle: { fontSize: 11, color: '#8B7E74', marginTop: 2 },
-  notifTime: { fontSize: 10, color: '#B0A498', marginLeft: 8, fontWeight: '500' },
+  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: ORDER_THEME.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  notifTitle: { fontSize: 13, fontWeight: '700', color: ORDER_THEME.textPrimary },
+  notifSubtitle: { fontSize: 11, color: ORDER_THEME.textSecondary, marginTop: 2 },
+  notifTime: { fontSize: 10, color: ORDER_THEME.textMuted, marginLeft: 8, fontWeight: '600' },
 });

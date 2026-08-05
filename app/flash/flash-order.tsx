@@ -75,6 +75,8 @@ export default function FlashOrderScreen() {
 
   // ฟังก์ชันกดยืนยันเพื่อบันทึกคำสั่งซื้อเข้าระบบและล็อกเงินค้ำประกัน
   const handleConfirmOrder = async () => {
+    if (submitting) return;
+
     const validItems = items.filter((i) => i.name.trim());
     if (validItems.length === 0) {
       Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกรายการสินค้าอย่างน้อย 1 อย่างครับ');
@@ -103,19 +105,39 @@ export default function FlashOrderScreen() {
         .select('id')
         .single();
 
-      if (orderError) throw orderError;
+      if (orderError || !orderData) throw orderError ?? new Error('ไม่สามารถสร้างออเดอร์ได้');
 
-      const { error: itemsError } = await supabase.from('order_items').insert(
-        validItems.map((i) => ({
+      try {
+        const totalAmount = itemTotal + postDetail.fee_per_order;
+        const { error: escrowError } = await supabase.rpc('lock_order_escrow', {
+          p_order_id: orderData.id,
+          p_total_amount: totalAmount,
+        });
+
+        if (escrowError) throw escrowError;
+
+        const { error: itemsError } = await supabase.from('order_items').insert(
+          validItems.map((i) => ({
+            order_id: orderData.id,
+            item_name: i.name,
+            quantity: Number(i.quantity) || 1,
+            est_price: Number(i.price) || 0,
+            note: note || null,
+          }))
+        );
+
+        if (itemsError) throw itemsError;
+
+        await supabase.from('order_status_logs').insert({
           order_id: orderData.id,
-          item_name: i.name,
-          quantity: Number(i.quantity) || 1,
-          est_price: Number(i.price) || 0,
-          note: note || null,
-        }))
-      );
-
-      if (itemsError) throw itemsError;
+          changed_by: userData.user.id,
+          status: 'accepted',
+          note: 'สร้างคำขอจาก Flash Buy และล็อกเงินสำเร็จ',
+        });
+      } catch (err: any) {
+        await supabase.from('orders').delete().eq('id', orderData.id);
+        throw err;
+      }
 
       Alert.alert('เข้าร่วมสำเร็จ', 'ส่งรายการสินค้าไปยังผู้รับหิ้วเรียบร้อยแล้ว!', [
         { text: 'ดูออเดอร์', onPress: () => router.replace('/(tabs)') }

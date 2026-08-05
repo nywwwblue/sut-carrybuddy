@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,45 +26,58 @@ export default function ShoppingListScreen() {
   const [totalFee, setTotalFee] = useState<number>(paramFee);
   const [orderCount, setOrderCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Modal สำหรับแก้ไขราคาจริง
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ShoppingItem | null>(null);
   const [newPriceText, setNewPriceText] = useState('');
 
-  useEffect(() => {
-    const fetchRealData = async () => {
-      setLoading(true);
+  const fetchRealData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
 
+    try {
       // 1. จัดการแยกรับ orderIds จากพารามิเตอร์ (ถ้ามี)
       let targetOrderIds: string[] = [];
       if (params.orderIds) {
         try {
           if (typeof params.orderIds === 'string') {
-            targetOrderIds = JSON.parse(params.orderIds);
+            targetOrderIds = JSON.parse(params.orderIds as string);
           } else if (Array.isArray(params.orderIds)) {
             targetOrderIds = params.orderIds as string[];
           }
         } catch (e) {
-          targetOrderIds = [params.orderIds as string];
+          // บางครั้งพารามิเตอร์จะเป็น comma-separated
+          const raw = String(params.orderIds);
+          if (raw.includes(',')) targetOrderIds = raw.split(',').map(s => s.trim());
+          else targetOrderIds = [raw];
         }
       } else if (params.orderId) {
-        targetOrderIds = [params.orderId as string];
+        targetOrderIds = [String(params.orderId)];
       }
+
+      console.log('ShoppingList: initial targetOrderIds', targetOrderIds);
 
       // 2. ถ้าไม่มี orderIds ส่งมาจาก พารามิเตอร์ ให้ดึงออเดอร์ทั้งหมดของไรเดอร์คนนี้ที่กำลังดำเนินการอยู่ (Accepted / In_Progress)
       if (targetOrderIds.length === 0) {
         const { data: userData } = await supabase.auth.getUser();
         if (userData.user) {
-          const { data: activeOrders } = await supabase
+          const { data: activeOrders, error: activeError } = await supabase
             .from('orders')
             .select('id, fee')
             .eq('runner_id', userData.user.id)
-            .not('status', 'in', '("completed","cancelled")'); // ดึงทุกสถานะยกเว้นที่เสร็จหรือยกเลิกแล้ว
+            .not('status', 'in', '(completed,cancelled)'); // ดึงทุกสถานะยกเว้นที่เสร็จหรือยกเลิกแล้ว
+
+          if (activeError) {
+            console.warn('ShoppingList: activeOrders error', activeError);
+          }
+
+          console.log('ShoppingList: activeOrders', activeOrders);
 
           if (activeOrders && activeOrders.length > 0) {
-            targetOrderIds = activeOrders.map(o => o.id);
-            const calculatedFee = activeOrders.reduce((sum, o) => sum + Number(o.fee || 0), 0);
+            targetOrderIds = activeOrders.map((o: any) => o.id);
+            const calculatedFee = activeOrders.reduce((sum: number, o: any) => sum + Number(o.fee || 0), 0);
             setTotalFee(calculatedFee);
           }
         }
@@ -97,9 +110,11 @@ export default function ShoppingListScreen() {
         `)
         .in('order_id', targetOrderIds);
 
+      console.log('ShoppingList: itemData length', itemData ? itemData.length : 0, 'error', itemError);
+
       if (!itemError && itemData && itemData.length > 0) {
         const rows = itemData as any[];
-        
+
         // ดึงชื่อร้านและจุดส่งมาแสดงที่แถบหัวข้อ
         const firstOrder = rows[0]?.order;
         if (firstOrder) {
@@ -116,25 +131,33 @@ export default function ShoppingListScreen() {
             itemName: `${row.item_name} (${row.quantity} ชิ้น)`,
             qty: row.quantity,
             price: Number(row.actual_price ?? row.est_price ?? 0), // ใช้ actual_price เป็นหลัก
-            isPicked: row.is_picked || false,
+            isPicked: Boolean(row.is_bought ?? false),
           }))
         );
       } else {
         setItems([]);
+        if (itemError) setLoadError(itemError.message || 'ไม่สามารถดึงรายการสินค้าได้');
       }
+    } catch (err: any) {
+      console.error('ShoppingList: fetch error', err);
+      setLoadError(err?.message || String(err));
+      setItems([]);
+    } finally {
       setLoading(false);
-    };
+    }
+  }, [params.orderIds, params.orderId, paramFee]);
 
+  useEffect(() => {
     fetchRealData();
-  }, [params.orderIds, params.orderId]);
+  }, [fetchRealData]);
 
   // ฟังก์ชันสลับสถานะติ๊กเลือกหยิบสินค้าจริง
   const togglePickItem = async (id: string, currentStatus: boolean) => {
     setItems(prev => prev.map(item => item.id === id ? { ...item, isPicked: !item.isPicked } : item));
-    
+
     await supabase
       .from('order_items')
-      .update({ is_picked: !currentStatus })
+      .update({ is_bought: !currentStatus })
       .eq('id', id);
   };
 
@@ -158,10 +181,10 @@ export default function ShoppingListScreen() {
     // บันทึกลงฟิลด์จริงในตาราง order_items คือ actual_price
     await supabase
       .from('order_items')
-      .update({ actual_price: updatedPrice })
+      .update({ actual_price: updatedPrice, est_price: updatedPrice })
       .eq('id', selectedItem.id);
   };
-  
+
   const pickedCount = items.filter(i => i.isPicked).length;
   const progressPercent = items.length > 0 ? Math.round((pickedCount / items.length) * 100) : 0;
   const remainingCount = items.length - pickedCount;
@@ -188,13 +211,18 @@ export default function ShoppingListScreen() {
         {loading ? (
           <ActivityIndicator color="#FF7A30" style={{ marginTop: 20 }} />
         ) : items.length === 0 ? (
-          <Text style={styles.emptyText}>ไม่พบรายการสินค้าที่ต้องซื้อขณะนี้</Text>
+          <>
+            <Text style={styles.emptyText}>{loadError ? `ผิดพลาด: ${loadError}` : 'ไม่พบรายการสินค้าที่ต้องซื้อขณะนี้'}</Text>
+            <TouchableOpacity style={styles.refreshBtn} onPress={fetchRealData}>
+              <Text style={styles.refreshText}>รีเฟรช</Text>
+            </TouchableOpacity>
+          </>
         ) : (
           items.map((item) => (
             <View key={item.id} style={styles.itemCard}>
               {/* ช่องติ๊กซ้ายสุด สำหรับติ๊กเช็คลิสต์สถานะสินค้า */}
-              <TouchableOpacity 
-                style={styles.checkboxTouch} 
+              <TouchableOpacity
+                style={styles.checkboxTouch}
                 onPress={() => togglePickItem(item.id, item.isPicked)}
                 activeOpacity={0.8}
               >
@@ -204,7 +232,7 @@ export default function ShoppingListScreen() {
               </TouchableOpacity>
 
               {/* ส่วนรูปอวาตาร์และชื่อสินค้า: กดตรงนี้เพื่อเข้าไปดูรายละเอียดออเดอร์เชิงลึก */}
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.itemMainClick}
                 onPress={() => router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } } as any)}
                 activeOpacity={0.8}
@@ -250,7 +278,7 @@ export default function ShoppingListScreen() {
           </View>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.actionSubmitBtn, styles.btnActiveSuccess]}
           onPress={() => router.replace('/(runner-tabs)')}
         >
@@ -328,6 +356,8 @@ const styles = StyleSheet.create({
   actionSubmitBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
   btnTextSuccess: { color: '#FFFFFF' },
   emptyText: { textAlign: 'center', color: '#8B7E74', marginVertical: 20 },
+  refreshBtn: { alignSelf: 'center', backgroundColor: '#FFF3EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, marginTop: 4 },
+refreshText: { color: '#FF7A30', fontWeight: 'bold', fontSize: 13 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { width: '100%', maxWidth: 320, backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, alignItems: 'center', gap: 12 },
   modalTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },

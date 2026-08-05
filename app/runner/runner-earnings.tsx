@@ -4,6 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface Earning {
   id: number;
@@ -85,22 +86,22 @@ export default function RunnerEarnings() {
         {/* Summary Cards */}
         <View style={styles.summaryRow}>
           <View style={styles.summaryCard}>
-            <View style={[styles.cardIconBox, { backgroundColor: '#FFF3EB' }]}>
-              <Ionicons name="wallet" size={20} color="#FF7A30" />
+            <View style={[styles.cardIconBox, { backgroundColor: ORDER_THEME.accentSoft }]}>
+              <Ionicons name="wallet" size={20} color={ORDER_THEME.accent} />
             </View>
             <Text style={styles.summaryLabel}>รายได้รวม</Text>
             <Text style={styles.summaryValue}>฿{totalEarnings.toFixed(0)}</Text>
           </View>
           <View style={styles.summaryCard}>
-            <View style={[styles.cardIconBox, { backgroundColor: '#E6F7ED' }]}>
-              <Ionicons name="checkmark-circle" size={20} color="#2ECC71" />
+            <View style={[styles.cardIconBox, { backgroundColor: ORDER_THEME.successSoft }]}>
+              <Ionicons name="checkmark-circle" size={20} color={ORDER_THEME.success} />
             </View>
             <Text style={styles.summaryLabel}>งานสำเร็จ</Text>
             <Text style={styles.summaryValue}>{filteredEarnings.length}</Text>
           </View>
           <View style={styles.summaryCard}>
-            <View style={[styles.cardIconBox, { backgroundColor: '#FFFBE6' }]}>
-              <Ionicons name="star" size={20} color="#FFB800" />
+            <View style={[styles.cardIconBox, { backgroundColor: ORDER_THEME.warningSoft }]}>
+              <Ionicons name="star" size={20} color={ORDER_THEME.warning} />
             </View>
             <Text style={styles.summaryLabel}>คะแนนดาว</Text>
             <Text style={styles.summaryValue}>{avgRating ? avgRating.toFixed(1) : '5.0'}</Text>
@@ -126,7 +127,7 @@ export default function RunnerEarnings() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ประวัติรายรับอย่างละเอียด</Text>
           {loading ? (
-            <ActivityIndicator color="#FF7A30" style={{ marginTop: 20 }} />
+            <ActivityIndicator color={ORDER_THEME.accent} style={{ marginTop: 20 }} />
           ) : filteredEarnings.length === 0 ? (
             <Text style={styles.emptyText}>ยังไม่มีรายได้เข้ามาในช่วงเวลานี้</Text>
           ) : (
@@ -145,7 +146,7 @@ export default function RunnerEarnings() {
         </View>
 
         {/* Withdrawal Section */}
-        <View style={styles.withdrawalSection}>
+          <View style={styles.withdrawalSection}>
           <View style={styles.withdrawalLeft}>
             <Ionicons name="cash-outline" size={24} color="#FF7A30" />
             <View>
@@ -165,37 +166,37 @@ export default function RunnerEarnings() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   summaryRow: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 20, gap: 10 },
   summaryCard: {
-    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 14,
-    borderWidth: 1, borderColor: '#F5EBE1', gap: 2
+    flex: 1, backgroundColor: ORDER_THEME.surface, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: ORDER_THEME.borderSoft, gap: 2, shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1
   },
   cardIconBox: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  summaryLabel: { fontSize: 11, color: '#8B7E74', fontWeight: '600' },
-  summaryValue: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
+  summaryLabel: { fontSize: 11, color: ORDER_THEME.textSecondary, fontWeight: '600' },
+  summaryValue: { fontSize: 16, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
   filterSection: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 20, gap: 8 },
-  filterBtn: { flex: 1, paddingVertical: 10, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#F5EBE1' },
-  filterBtnActive: { backgroundColor: '#FF7A30', borderColor: '#FF7A30' },
-  filterBtnText: { textAlign: 'center', fontSize: 12, fontWeight: '700', color: '#8B7E74' },
-  filterBtnTextActive: { color: '#FFFFFF' },
+  filterBtn: { flex: 1, paddingVertical: 10, borderRadius: 20, backgroundColor: ORDER_THEME.surface, borderWidth: 1, borderColor: ORDER_THEME.borderSoft },
+  filterBtnActive: { backgroundColor: ORDER_THEME.accent, borderColor: ORDER_THEME.accent },
+  filterBtnText: { textAlign: 'center', fontSize: 12, fontWeight: '700', color: ORDER_THEME.textSecondary },
+  filterBtnTextActive: { color: ORDER_THEME.surface },
   section: { paddingHorizontal: 20, marginBottom: 16 },
-  sectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', marginBottom: 12 },
-  emptyText: { textAlign: 'center', color: '#B0A498', marginTop: 10, fontSize: 13 },
-  earningCard: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#F5EBE1' },
+  sectionTitle: { fontSize: 15, fontWeight: 'bold', color: ORDER_THEME.textPrimary, marginBottom: 12 },
+  emptyText: { textAlign: 'center', color: ORDER_THEME.textMuted, marginTop: 10, fontSize: 13 },
+  earningCard: { backgroundColor: ORDER_THEME.surface, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: ORDER_THEME.borderSoft },
   earningHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  orderNumber: { fontSize: 14, fontWeight: 'bold', color: '#3A2113' },
-  date: { fontSize: 12, color: '#8B7E74', marginTop: 2 },
-  fee: { fontSize: 16, fontWeight: 'bold', color: '#2ECC71' },
+  orderNumber: { fontSize: 14, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
+  date: { fontSize: 12, color: ORDER_THEME.textSecondary, marginTop: 2 },
+  fee: { fontSize: 16, fontWeight: 'bold', color: ORDER_THEME.success },
   withdrawalSection: {
-    marginHorizontal: 20, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#FFFFFF',
-    borderRadius: 16, borderWidth: 1.5, borderColor: '#FF7A30',
+    marginHorizontal: 20, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16, borderWidth: 1.5, borderColor: ORDER_THEME.accent,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    shadowColor: '#FF7A30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1
+    shadowColor: ORDER_THEME.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1
   },
   withdrawalLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  withdrawalTitle: { fontSize: 12, color: '#8B7E74', fontWeight: '600' },
-  withdrawalAmount: { fontSize: 22, fontWeight: 'bold', color: '#FF7A30', marginTop: 2 },
-  withdrawalBtn: { backgroundColor: '#FF7A30', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  withdrawalBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
+  withdrawalTitle: { fontSize: 12, color: ORDER_THEME.textSecondary, fontWeight: '600' },
+  withdrawalAmount: { fontSize: 22, fontWeight: 'bold', color: ORDER_THEME.accent, marginTop: 2 },
+  withdrawalBtn: { backgroundColor: ORDER_THEME.accent, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  withdrawalBtnText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 13 },
 });

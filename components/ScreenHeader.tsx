@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface Props {
   title: string;
@@ -47,7 +48,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: ORDER_THEME.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -57,11 +58,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 17,
     fontWeight: 'bold',
-    color: '#3A2113',
+    color: ORDER_THEME.textPrimary,
   },
   subtitle: {
     fontSize: 11,
-    color: '#8B7E74',
+    color: ORDER_THEME.textSecondary,
     marginTop: 2,
   },
   rightSlot: {

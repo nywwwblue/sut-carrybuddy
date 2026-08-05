@@ -24,6 +24,8 @@ export default function RateRider() {
   }, [runnerId]);
 
   const handleSubmit = async () => {
+    if (submitting) return;
+
     if (!orderId || !runnerId) {
       Alert.alert('ผิดพลาด', 'ไม่พบข้อมูลออเดอร์');
       return;

@@ -45,6 +45,8 @@ export default function CreateRoutePost() {
   const feePerOrder = vehicle === 'car' ? 25 : vehicle === 'moto' ? 20 : vehicle === 'bike' ? 15 : 10;
 
   const handlePostRoute = async () => {
+    if (submitting) return;
+
     if (!selectedStore || !selectedDropoff) {
       Alert.alert('ไม่ครบ', 'กรุณาเลือกสถานที่ต้นทางและตึกหอพักปลายทาง');
       return;

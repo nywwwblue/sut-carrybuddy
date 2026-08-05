@@ -42,6 +42,8 @@ export default function FlashControllerScreen() {
   );
 
   const handleOpenFlashBuy = async () => {
+    if (submitting) return;
+
     if (!selectedStoreId && !customLocationText.trim()) {
       Alert.alert('ข้อมูลไม่ครบ', 'กรุณาเลือกร้านค้าต้นทางที่จะไปซื้อของครับ');
       return;

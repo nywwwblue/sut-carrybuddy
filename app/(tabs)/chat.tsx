@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, Act
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface ChatPreview {
   conversationId: number;
@@ -134,25 +135,25 @@ export default function ChatListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   header: { paddingHorizontal: 20, paddingVertical: 16 },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#3A2113', letterSpacing: 0.3 },
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: ORDER_THEME.textPrimary, letterSpacing: 0.3 },
   content: { paddingHorizontal: 16, gap: 4 },
-  emptyText: { textAlign: 'center', color: '#B0A498', marginTop: 40, paddingHorizontal: 20, fontSize: 13, lineHeight: 20 },
+  emptyText: { textAlign: 'center', color: ORDER_THEME.textMuted, marginTop: 40, paddingHorizontal: 20, fontSize: 13, lineHeight: 20 },
   chatItem: {
-    flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 12,
-    alignItems: 'center', gap: 12, marginBottom: 8, borderWidth: 1, borderColor: '#F5EBE1',
+    flexDirection: 'row', backgroundColor: ORDER_THEME.surface, borderRadius: 16, padding: 12,
+    alignItems: 'center', gap: 12, marginBottom: 8, borderWidth: 1, borderColor: ORDER_THEME.borderSoft,
   },
-  chatItemUnread: { backgroundColor: '#FFF3EB', borderColor: '#FFE0C7' },
+  chatItemUnread: { backgroundColor: ORDER_THEME.surfaceSoft, borderColor: ORDER_THEME.accentSoft },
   avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 15 },
+  avatarText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 15 },
   chatInfo: { flex: 1, gap: 2 },
   chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  name: { fontSize: 14, fontWeight: '600', color: '#3A2113', flex: 1 },
-  nameUnread: { fontWeight: 'bold', color: '#FF7A30' },
-  time: { fontSize: 11, color: '#B0A498', flexShrink: 0 },
-  lastMessage: { fontSize: 13, color: '#8B7E74' },
-  lastMessageUnread: { color: '#3A2113', fontWeight: '500' },
-  unreadBadge: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#FF7A30', flexShrink: 0, marginRight: 4 },
+  name: { fontSize: 14, fontWeight: '600', color: ORDER_THEME.textPrimary, flex: 1 },
+  nameUnread: { fontWeight: 'bold', color: ORDER_THEME.accent },
+  time: { fontSize: 11, color: ORDER_THEME.textMuted, flexShrink: 0 },
+  lastMessage: { fontSize: 13, color: ORDER_THEME.textSecondary },
+  lastMessageUnread: { color: ORDER_THEME.textPrimary, fontWeight: '500' },
+  unreadBadge: { width: 10, height: 10, borderRadius: 5, backgroundColor: ORDER_THEME.accent, flexShrink: 0, marginRight: 4 },
   spacer: { height: 40 },
 });

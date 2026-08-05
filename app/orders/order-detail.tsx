@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ORDER_THEME } from '@/constants/OrderTheme';
+import { StatusPill } from '@/components/StatusPill';
 
 // 📐 ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -35,6 +37,21 @@ function calculateETA(distanceMeters: number) {
   }
 
   return { distanceText, minutes: minutes < 1 ? 1 : minutes };
+}
+
+function formatDisplayDate(value?: string | null) {
+  if (!value) return 'ไม่ทราบวันที่';
+  try {
+    return new Date(value).toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return 'ไม่ทราบวันที่';
+  }
 }
 
 // 📡 คอมโพเนนต์ LiveTrackingCard สำหรับคนฝากหิ้ว
@@ -109,6 +126,18 @@ const STEP_LABELS: Record<string, string> = {
   delivering: 'กำลังเดินทาง',
   completed: 'จัดส่งสำเร็จ',
 };
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  pending: ['accepted'],
+  accepted: ['buying'],
+  buying: ['bought'],
+  bought: ['delivering'],
+  delivering: ['completed'],
+};
+
+function canTransitionTo(currentStatus: string, nextStatus: string) {
+  if (!currentStatus || currentStatus === 'completed' || currentStatus === 'cancelled') return false;
+  return (ALLOWED_TRANSITIONS[currentStatus] || []).includes(nextStatus);
+}
 
 interface OrderDetail {
   id: number;
@@ -139,35 +168,44 @@ export default function OrderDetailScreen() {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
       setLoading(false);
+      setLoadError('ไม่พบรหัสออเดอร์');
+      setOrder(null);
       return;
     }
+
     setLoading(true);
-    const { data: userData } = await supabase.auth.getUser();
-    const uid = userData.user?.id ?? null;
-    setMyUserId(uid);
+    setLoadError(null);
 
-    const { data, error } = await supabase
-      .from('orders')
-      .select(
-        `id, status, payment_mode, item_total, fee, requester_id, runner_id,
-         custom_store_lat, custom_store_lng, custom_store_label,
-         custom_dropoff_lat, custom_dropoff_lng, custom_dropoff_label,
-         order_items ( item_name, quantity ),
-         store:store_id ( name, lat, lng ),
-         dropoff:dropoff_id ( name, lat, lng )`
-      )
-      .eq('id', orderId)
-      .single();
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id ?? null;
+      setMyUserId(uid);
 
-    if (!error && data) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(
+          `id, status, payment_mode, item_total, fee, requester_id, runner_id,
+           custom_store_lat, custom_store_lng, custom_store_label,
+           custom_dropoff_lat, custom_dropoff_lng, custom_dropoff_label,
+           order_items ( item_name, quantity ),
+           store:store_id ( name, lat, lng ),
+           dropoff:dropoff_id ( name, lat, lng )`
+        )
+        .eq('id', orderId)
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error('ไม่พบออเดอร์นี้');
+
       const row = data as any;
       const reqId = row.requester_id ? String(row.requester_id).trim() : '';
       const runId = row.runner_id ? String(row.runner_id).trim() : null;
-      
+
       const isRunnerUser = uid && runId && String(uid).trim() === runId;
       const otherUserId = isRunnerUser ? reqId : runId;
       let otherName = 'ไม่ทราบชื่อ';
@@ -204,15 +242,20 @@ export default function OrderDetailScreen() {
         otherPartyName: otherName,
         otherPartyTrust: otherTrust,
         items: row.order_items || [],
-        dropoffLabel: dropoffLabel,
+        dropoffLabel,
         storeLat,
         storeLng,
         storeLabel,
         dropoffLat,
         dropoffLng,
       });
+    } catch (error: any) {
+      console.log('loadOrder error', error);
+      setLoadError(error.message || 'ไม่สามารถโหลดข้อมูลออเดอร์ได้');
+      setOrder(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [orderId]);
 
   useFocusEffect(
@@ -261,28 +304,53 @@ export default function OrderDetailScreen() {
   };
 
   const updateStatus = async (newStatus: string) => {
-    if (!order) return;
+    if (!order || updating) return;
+
+    if (!canTransitionTo(order.status, newStatus)) {
+      Alert.alert('สถานะไม่ถูกต้อง', 'ไม่สามารถอัปเดตสถานะนี้จากสถานะปัจจุบันได้');
+      return;
+    }
+
     setUpdating(true);
 
-    if (newStatus === 'completed' && order.payment_mode === 'wallet') {
-      const { error } = await supabase.rpc('release_escrow_and_complete', { p_order_id: order.id });
-      if (error) Alert.alert('ผิดพลาด', error.message);
-    } else {
-      await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
-      await supabase.from('order_status_logs').insert({ order_id: order.id, changed_by: myUserId, status: newStatus });
+    try {
+      if (newStatus === 'completed' && order.payment_mode === 'wallet') {
+        const { error } = await supabase.rpc('release_escrow_and_complete', { p_order_id: order.id });
+        if (error) throw error;
+      } else {
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ status: newStatus })
+          .eq('id', order.id);
+
+        if (updateError) throw updateError;
+
+        const { error: logError } = await supabase.from('order_status_logs').insert({
+          order_id: order.id,
+          changed_by: myUserId,
+          status: newStatus,
+          note: `เปลี่ยนสถานะเป็น ${STEP_LABELS[newStatus] || newStatus}`,
+        });
+
+        if (logError) throw logError;
+      }
+
+      await loadOrder();
+    } catch (error: any) {
+      Alert.alert('อัปเดตสถานะไม่สำเร็จ', error.message || 'กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setUpdating(false);
     }
-    setUpdating(false);
-    loadOrder();
   };
 
   const handleConfirmCOD = async () => {
-    if (!order) return;
+    if (!order || updating) return;
     setUpdating(true);
 
     try {
       const { error: rpcError } = await supabase.rpc('settle_cod_order', {
         p_order_id: order.id,
-        p_changed_by: myUserId
+        p_changed_by: myUserId,
       });
 
       if (rpcError) throw rpcError;
@@ -297,7 +365,7 @@ export default function OrderDetailScreen() {
   };
 
   const handleCancelOrder = async () => {
-    if (!order) return;
+    if (!order || updating) return;
     Alert.alert('ยืนยัน', 'คุณต้องการยกเลิกคำขอฝากหิ้วนี้ใช่หรือไม่?', [
       { text: 'ยกเลิก', style: 'cancel' },
       {
@@ -305,14 +373,27 @@ export default function OrderDetailScreen() {
         style: 'destructive',
         onPress: async () => {
           setUpdating(true);
-          await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
-          await supabase.from('order_status_logs').insert({ order_id: order.id, changed_by: myUserId, status: 'cancelled', note: 'ผู้ใช้ยกเลิกออเดอร์' });
-          
-          setUpdating(false);
-          Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์เรียบร้อยแล้ว');
-          router.back();
-        }
-      }
+          try {
+            const { error: updateError } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
+            if (updateError) throw updateError;
+
+            const { error: logError } = await supabase.from('order_status_logs').insert({
+              order_id: order.id,
+              changed_by: myUserId,
+              status: 'cancelled',
+              note: 'ผู้ใช้ยกเลิกออเดอร์',
+            });
+            if (logError) throw logError;
+
+            Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์เรียบร้อยแล้ว');
+            router.back();
+          } catch (error: any) {
+            Alert.alert('ยกเลิกไม่สำเร็จ', error.message || 'กรุณาลองใหม่อีกครั้ง');
+          } finally {
+            setUpdating(false);
+          }
+        },
+      },
     ]);
   };
 
@@ -327,7 +408,11 @@ export default function OrderDetailScreen() {
   if (!order) {
     return (
       <SafeAreaView style={[styles.container, styles.centerContent]}>
-        <Text style={{ color: '#8B7E74' }}>ไม่พบข้อมูลออเดอร์นี้</Text>
+        <Text style={styles.emptyTitle}>ไม่พบออเดอร์</Text>
+        <Text style={styles.emptyText}>{loadError || 'ข้อมูลออเดอร์อาจถูกลบหรือหมดอายุแล้ว'}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => loadOrder()}>
+          <Text style={styles.retryText}>ลองโหลดใหม่</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -335,8 +420,32 @@ export default function OrderDetailScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
         <ScreenHeader title="อัปเดตสถานะ" subtitle={`Order #${order.id}`} />
+
+        <View style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroTitle}>คำสั่งซื้อ #{order.id}</Text>
+              <Text style={styles.heroSubtitle}>{order.storeLabel} → {order.dropoffLabel}</Text>
+            </View>
+            <StatusPill status={order.status} />
+          </View>
+
+          <View style={styles.heroMetaRow}>
+            <View style={styles.heroMetaBox}>
+              <Text style={styles.heroMetaLabel}>วิธีชำระ</Text>
+              <Text style={styles.heroMetaValue}>{order.payment_mode === 'cod' ? 'COD' : 'Wallet'}</Text>
+            </View>
+            <View style={styles.heroMetaBox}>
+              <Text style={styles.heroMetaLabel}>ยอดรวม</Text>
+              <Text style={styles.heroMetaValue}>฿{(order.item_total + order.fee).toFixed(0)}</Text>
+            </View>
+            <View style={styles.heroMetaBox}>
+              <Text style={styles.heroMetaLabel}>สร้างเมื่อ</Text>
+              <Text style={styles.heroMetaValue}>{formatDisplayDate((order as any).created_at)}</Text>
+            </View>
+          </View>
+        </View>
 
         {/* Timeline */}
         <View style={styles.timeline}>
@@ -509,6 +618,11 @@ export default function OrderDetailScreen() {
               style={styles.messageButton}
               onPress={async () => {
                 const otherPartyId = isRunner ? order.requester_id : order.runner_id;
+                if (!otherPartyId) {
+                  Alert.alert('เปิดแชทไม่สำเร็จ', 'ไม่พบข้อมูลคู่สนทนาของออเดอร์นี้');
+                  return;
+                }
+
                 const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
                   other_user_id: otherPartyId,
                 });
@@ -560,11 +674,90 @@ const trackingStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#FFFBF7' 
+    backgroundColor: ORDER_THEME.backgroundAlt 
   },
-  centerContent: { 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  centerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: ORDER_THEME.textPrimary,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: ORDER_THEME.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
+  retryBtn: {
+    backgroundColor: ORDER_THEME.accent,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
+  },
+  retryText: {
+    color: ORDER_THEME.surface,
+    fontWeight: '700',
+  },
+  heroCard: {
+    backgroundColor: ORDER_THEME.surface,
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
+    shadowColor: '#3A2113',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  heroTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: ORDER_THEME.textPrimary,
+  },
+  heroSubtitle: {
+    fontSize: 12,
+    color: ORDER_THEME.textSecondary,
+    marginTop: 4,
+  },
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  heroMetaBox: {
+    flex: 1,
+    minWidth: 90,
+    backgroundColor: ORDER_THEME.surfaceSoft,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  heroMetaLabel: {
+    fontSize: 10,
+    color: ORDER_THEME.textSecondary,
+    marginBottom: 4,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  heroMetaValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ORDER_THEME.textPrimary,
   },
   timeline: { 
     backgroundColor: '#FFFFFF', 
@@ -586,7 +779,7 @@ const styles = StyleSheet.create({
     width: 24, 
     height: 24, 
     borderRadius: 12, 
-    backgroundColor: '#F0E5DC',
+    backgroundColor: ORDER_THEME.borderSoft,
     alignItems: 'center', 
     justifyContent: 'center', 
     marginRight: 16, 
@@ -602,7 +795,7 @@ const styles = StyleSheet.create({
     left: 10, 
     top: 26, 
     bottom: -10, 
-    backgroundColor: '#F0E5DC', 
+    backgroundColor: ORDER_THEME.borderSoft, 
     zIndex: 1 
   },
   timelineLineCompleted: { 
@@ -615,7 +808,7 @@ const styles = StyleSheet.create({
   },
   timelineLabel: { 
     fontSize: 14, 
-    color: '#B0A498', 
+    color: ORDER_THEME.textMuted, 
     fontWeight: '500' 
   },
   timelineLabelCompleted: { 
@@ -626,11 +819,11 @@ const styles = StyleSheet.create({
   navSection: {
     marginHorizontal: 16,
     marginBottom: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: ORDER_THEME.surface,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#F5EBE1',
+    borderColor: ORDER_THEME.borderSoft,
     elevation: 1,
   },
   navSectionTitle: {
@@ -699,7 +892,7 @@ const styles = StyleSheet.create({
   },
   divider: { 
     height: 1, 
-    backgroundColor: '#F5EBE1', 
+    backgroundColor: ORDER_THEME.borderSoft, 
     marginVertical: 12 
   },
   itemsTotalRow: { 
@@ -709,21 +902,21 @@ const styles = StyleSheet.create({
   },
   itemsTotalLabel: { 
     fontSize: 14, 
-    color: '#8B7E74' 
+    color: ORDER_THEME.textSecondary 
   },
   itemsTotalValue: { 
     fontSize: 18, 
     fontWeight: 'bold', 
-    color: '#FF7A30' 
+    color: ORDER_THEME.accent 
   },
   advanceBtn: {
     marginHorizontal: 16, 
     marginBottom: 16, 
-    backgroundColor: '#FF7A30', 
+    backgroundColor: ORDER_THEME.accent, 
     borderRadius: 14,
     paddingVertical: 16, 
     alignItems: 'center', 
-    shadowColor: '#FF7A30', 
+    shadowColor: ORDER_THEME.accent, 
     shadowOffset: { width: 0, height: 4 }, 
     shadowOpacity: 0.2, 
     shadowRadius: 8, 
@@ -737,11 +930,11 @@ const styles = StyleSheet.create({
   cancelBtn: {
     marginHorizontal: 16, 
     marginBottom: 16, 
-    backgroundColor: '#E74C3C', 
+    backgroundColor: ORDER_THEME.danger, 
     borderRadius: 14,
     paddingVertical: 16, 
     alignItems: 'center',
-    shadowColor: '#E74C3C', 
+    shadowColor: ORDER_THEME.danger, 
     shadowOffset: { width: 0, height: 4 }, 
     shadowOpacity: 0.2, 
     shadowRadius: 8, 
@@ -758,20 +951,20 @@ const styles = StyleSheet.create({
     gap: 12 
   },
   qrContainer: { 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 16, 
-    padding: 24, 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1', 
+    backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft, 
     alignItems: 'center', 
     gap: 12 
   },
   qrBox: { 
     padding: 12, 
-    backgroundColor: '#FFFBF7', 
+    backgroundColor: ORDER_THEME.backgroundAlt, 
     borderRadius: 12, 
     borderWidth: 1, 
-    borderColor: '#EBDCD0' 
+    borderColor: ORDER_THEME.border 
   },
   qrLabel: { 
     fontSize: 13, 
@@ -780,7 +973,7 @@ const styles = StyleSheet.create({
   },
   qrHintText: { 
     fontSize: 12, 
-    color: '#8B7E74', 
+    color: ORDER_THEME.textSecondary, 
     textAlign: 'center', 
     lineHeight: 18 
   },
@@ -798,12 +991,12 @@ const styles = StyleSheet.create({
   codSection: { 
     marginHorizontal: 16, 
     marginBottom: 20, 
-    backgroundColor: '#FFFFFF', 
+    backgroundColor: ORDER_THEME.surface, 
     borderRadius: 16, 
     padding: 16, 
     gap: 12, 
     borderWidth: 1, 
-    borderColor: '#EBF3FC' 
+    borderColor: ORDER_THEME.infoSoft 
   },
   codHeader: { 
     flexDirection: 'row', 
@@ -831,7 +1024,7 @@ const styles = StyleSheet.create({
     color: '#2ECC71' 
   },
   confirmButton: { 
-    backgroundColor: '#2ECC71', 
+    backgroundColor: ORDER_THEME.success, 
     borderRadius: 12, 
     paddingVertical: 14, 
     alignItems: 'center' 
@@ -862,14 +1055,14 @@ const styles = StyleSheet.create({
     marginBottom: 20 
   },
   riderCard: { 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 16, 
-    padding: 14, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12, 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1' 
+    backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft 
   },
   riderAvatar: { 
     width: 46, 
@@ -889,11 +1082,11 @@ const styles = StyleSheet.create({
   riderName: { 
     fontSize: 15, 
     fontWeight: 'bold', 
-    color: '#3A2113' 
+    color: ORDER_THEME.textPrimary 
   },
   riderTrust: { 
     fontSize: 12, 
-    color: '#8B7E74', 
+    color: ORDER_THEME.textSecondary, 
     marginTop: 2 
   },
   messageButton: { 

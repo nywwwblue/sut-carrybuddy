@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmptyState } from '@/components/EmptyState';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface OrderItem {
   id: number;
@@ -153,22 +154,22 @@ export default function OrderTaskListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8 },
   taskCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: '#F5EBE1', shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 6, elevation: 1
+    backgroundColor: ORDER_THEME.surface, borderRadius: 18, padding: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: ORDER_THEME.borderSoft, shadowColor: '#3A2113', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  orderIdText: { fontSize: 15, fontWeight: 'bold', color: '#3A2113' },
-  customerText: { fontSize: 12, color: '#8B7E74', marginTop: 2 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  statusText: { fontSize: 11, fontWeight: 'bold' },
-  dropoffText: { fontSize: 13, fontWeight: '600', color: '#5C4638', marginBottom: 4 },
-  divider: { height: 1, backgroundColor: '#F5EBE1', marginVertical: 12 },
-  sectionLabel: { fontSize: 13, fontWeight: 'bold', color: '#3A2113', marginBottom: 6 },
-  itemName: { fontSize: 13, color: '#5C4638', paddingVertical: 2 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 8, borderTopWidth: 1, borderColor: '#FAF3ED' },
-  detailHintText: { fontSize: 12, color: '#FF7A30', fontWeight: '600' },
+  orderIdText: { fontSize: 15, fontWeight: '700', color: ORDER_THEME.textPrimary },
+  customerText: { fontSize: 12, color: ORDER_THEME.textSecondary, marginTop: 2 },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  dropoffText: { fontSize: 13, fontWeight: '600', color: ORDER_THEME.textPrimary, marginBottom: 4 },
+  divider: { height: 1, backgroundColor: ORDER_THEME.borderSoft, marginVertical: 12 },
+  sectionLabel: { fontSize: 13, fontWeight: '700', color: ORDER_THEME.textPrimary, marginBottom: 6 },
+  itemName: { fontSize: 13, color: ORDER_THEME.textSecondary, paddingVertical: 2 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 8, borderTopWidth: 1, borderColor: ORDER_THEME.borderSoft },
+  detailHintText: { fontSize: 12, color: ORDER_THEME.accent, fontWeight: '700' },
 });

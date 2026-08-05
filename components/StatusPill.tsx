@@ -1,16 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 export type OrderStatus = 'pending' | 'accepted' | 'buying' | 'bought' | 'delivering' | 'completed' | 'cancelled';
 
 const STATUS_META: Record<OrderStatus, { label: string; bg: string; text: string }> = {
-  pending: { label: 'รอตอบรับ', bg: '#FFF3E0', text: '#F5A623' },
-  accepted: { label: 'รับออเดอร์แล้ว', bg: '#E8F1FC', text: '#4A90E2' },
-  buying: { label: 'กำลังซื้อสินค้า', bg: '#E8F1FC', text: '#4A90E2' },
-  bought: { label: 'ซื้อแล้ว รอส่ง', bg: '#E8F1FC', text: '#4A90E2' },
-  delivering: { label: 'กำลังเดินทาง', bg: '#FFF3E0', text: '#F5A623' },
-  completed: { label: 'สำเร็จ', bg: '#E6F7ED', text: '#2ECC71' },
-  cancelled: { label: 'ยกเลิก', bg: '#FDECEC', text: '#E74C3C' },
+  pending: { label: 'รอตอบรับ', bg: ORDER_THEME.warningSoft, text: ORDER_THEME.warning },
+  accepted: { label: 'รับออเดอร์แล้ว', bg: ORDER_THEME.infoSoft, text: ORDER_THEME.info },
+  buying: { label: 'กำลังซื้อสินค้า', bg: ORDER_THEME.infoSoft, text: ORDER_THEME.info },
+  bought: { label: 'ซื้อแล้ว รอส่ง', bg: ORDER_THEME.infoSoft, text: ORDER_THEME.info },
+  delivering: { label: 'กำลังเดินทาง', bg: ORDER_THEME.warningSoft, text: ORDER_THEME.warning },
+  completed: { label: 'สำเร็จ', bg: ORDER_THEME.successSoft, text: ORDER_THEME.success },
+  cancelled: { label: 'ยกเลิก', bg: ORDER_THEME.dangerSoft, text: ORDER_THEME.danger },
 };
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
 
 // ใช้แทนที่โค้ด mapping สี/ข้อความสถานะที่แต่ละหน้า (order-history, order-detail, notifications) เคยเขียนเองแยกกัน
 export function StatusPill({ status, size = 'medium' }: Props) {
-  const meta = STATUS_META[status as OrderStatus] ?? { label: status, bg: '#F0E6DC', text: '#8B7E74' };
+  const meta = STATUS_META[status as OrderStatus] ?? { label: status, bg: ORDER_THEME.borderSoft, text: ORDER_THEME.textSecondary };
   const isSmall = size === 'small';
 
   return (

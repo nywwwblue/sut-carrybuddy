@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import FlashBuyIntroModal from '@/components/FlashBuyIntroModal';
+import { buildSearchResultsRoute } from '@/lib/searchRouting';
 
 interface RunnerPostRow {
   id: number;
@@ -193,7 +194,7 @@ export default function HomeScreen() {
             placeholderTextColor="#C9BBAF"
             value={searchText}
             onChangeText={setSearchText}
-            onSubmitEditing={() => router.push('/search-results')}
+            onSubmitEditing={() => router.push(buildSearchResultsRoute(searchText))}
             returnKeyType="search"
           />
         </View>

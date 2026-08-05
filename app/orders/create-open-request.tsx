@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { LocationPickerModal, PickedLocation } from '@/components/LocationPickerModal';
 import { ItemListEditor, EditableItem, calcItemTotal } from '@/components/ItemListEditor';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 function locationLabel(loc: PickedLocation | null) {
   if (!loc) return null;
@@ -26,6 +27,8 @@ export default function CreateOpenRequest() {
   const itemTotal = calcItemTotal(items);
 
   const handleSubmit = async () => {
+    if (submitting) return;
+
     if (!store || !dropoff) {
       Alert.alert('ไม่ครบ', 'กรุณาเลือกร้านต้นทางและจุดส่งปลายทาง');
       return;
@@ -63,7 +66,7 @@ export default function CreateOpenRequest() {
         custom_dropoff_lng: dropoff.type === 'custom' ? dropoff.lng : null,
         custom_dropoff_label: dropoff.type === 'custom' ? dropoff.label : null,
 
-        payment_mode: paymentMethod, // ใช้ค่าที่ผู้ใช้เลือก ('cash' หรือ 'qr')
+        payment_mode: paymentMethod === 'cash_on_delivery' ? 'cod' : 'wallet',
         item_total: itemTotal,
         fee,
         status: 'pending',
@@ -106,68 +109,77 @@ export default function CreateOpenRequest() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.label}>ร้าน/สถานที่ต้นทาง</Text>
-        <TouchableOpacity style={styles.pickerField} onPress={() => setPickerOpen('store')} activeOpacity={0.8}>
-          <Ionicons name={store?.type === 'custom' ? 'pin' : 'location'} size={18} color="#FF7A30" />
-          <Text style={[styles.pickerText, !store && styles.pickerPlaceholder]}>
-            {locationLabel(store) || 'เลือกร้าน/สถานที่...'}
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
-        </TouchableOpacity>
-
-        <View style={{ marginTop: 16, marginBottom: 16 }}>
-          <Text style={styles.label}>จุดส่งของปลายทาง</Text>
-          <TouchableOpacity style={styles.pickerField} onPress={() => setPickerOpen('dropoff')} activeOpacity={0.8}>
-            <Ionicons name={dropoff?.type === 'custom' ? 'pin' : 'location'} size={18} color="#FF7A30" />
-            <Text style={[styles.pickerText, !dropoff && styles.pickerPlaceholder]}>
-              {locationLabel(dropoff) || 'เลือกจุดส่งของ...'}
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>ร้าน/สถานที่ต้นทาง</Text>
+          <TouchableOpacity style={styles.pickerField} onPress={() => setPickerOpen('store')} activeOpacity={0.8}>
+            <Ionicons name={store?.type === 'custom' ? 'pin' : 'location'} size={18} color={ORDER_THEME.accent} />
+            <Text style={[styles.pickerText, !store && styles.pickerPlaceholder]}>
+              {locationLabel(store) || 'เลือกร้าน/สถานที่...'}
             </Text>
-            <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
+            <Ionicons name="chevron-forward" size={18} color={ORDER_THEME.textMuted} />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.label}>รายการสินค้า</Text>
-        <ItemListEditor items={items} onChange={setItems} />
-
-        <Text style={[styles.label, { marginTop: 16 }]}>หมายเหตุเพิ่มเติม (ไม่บังคับ)</Text>
-        <TextInput
-          style={styles.noteInput}
-          placeholder="เช่น ไม่ใส่ผักชี, รอรับได้หลัง 5 โมงเย็น"
-          placeholderTextColor="#B0A498"
-          value={note}
-          onChangeText={setNote}
-          multiline
-        />
-
-        <Text style={[styles.label, { marginTop: 16 }]}>ค่าหิ้วที่จะให้ (บาท)</Text>
-        <TextInput
-          style={styles.feeInput}
-          keyboardType="decimal-pad"
-          value={offerFee}
-          onChangeText={setOfferFee}
-        />
-        <Text style={styles.feeHint}>ตั้งราคาเองได้ ยิ่งให้เยอะยิ่งมีคนรับเร็ว (แนะนำ 15-25฿)</Text>
-
-        {/* ส่วนเลือกวิธีการชำระเงิน (ปรับให้ตรงกับแอปเรา: จ่ายปลายทาง / เป๋าเงินในแอป) */}
-        <Text style={[styles.label, { marginTop: 16 }]}>วิธีการชำระเงิน</Text>
-        <View style={styles.paymentRow}>
-          <TouchableOpacity 
-            style={[styles.paymentOption, paymentMethod === 'cash_on_delivery' && styles.paymentOptionActive]}
-            onPress={() => setPaymentMethod('cash_on_delivery' as any)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="wallet-outline" size={20} color={paymentMethod === 'cash_on_delivery' ? '#FF7A30' : '#8B7E74'} />
-            <Text style={[styles.paymentText, paymentMethod === 'cash_on_delivery' && styles.paymentTextActive]}>จ่ายปลายทาง</Text>
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>จุดส่งของปลายทาง</Text>
+          <TouchableOpacity style={styles.pickerField} onPress={() => setPickerOpen('dropoff')} activeOpacity={0.8}>
+            <Ionicons name={dropoff?.type === 'custom' ? 'pin' : 'location'} size={18} color={ORDER_THEME.accent} />
+            <Text style={[styles.pickerText, !dropoff && styles.pickerPlaceholder]}>
+              {locationLabel(dropoff) || 'เลือกจุดส่งของ...'}
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color={ORDER_THEME.textMuted} />
           </TouchableOpacity>
+        </View>
 
-          <TouchableOpacity 
-            style={[styles.paymentOption, paymentMethod === 'wallet' && styles.paymentOptionActive]}
-            onPress={() => setPaymentMethod('wallet')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="card-outline" size={20} color={paymentMethod === 'wallet' ? '#FF7A30' : '#8B7E74'} />
-            <Text style={[styles.paymentText, paymentMethod === 'wallet' && styles.paymentTextActive]}>เป๋าเงินในแอป</Text>
-          </TouchableOpacity>
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>รายการสินค้า</Text>
+          <ItemListEditor items={items} onChange={setItems} />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>หมายเหตุเพิ่มเติม (ไม่บังคับ)</Text>
+          <TextInput
+            style={styles.noteInput}
+            placeholder="เช่น ไม่ใส่ผักชี, รอรับได้หลัง 5 โมงเย็น"
+            placeholderTextColor={ORDER_THEME.textMuted}
+            value={note}
+            onChangeText={setNote}
+            multiline
+          />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>ค่าหิ้วที่จะให้ (บาท)</Text>
+          <TextInput
+            style={styles.feeInput}
+            keyboardType="decimal-pad"
+            value={offerFee}
+            onChangeText={setOfferFee}
+          />
+          <Text style={styles.feeHint}>ตั้งราคาเองได้ ยิ่งให้เยอะยิ่งมีคนรับเร็ว (แนะนำ 15-25฿)</Text>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.label}>วิธีการชำระเงิน</Text>
+          <View style={styles.paymentRow}>
+            <TouchableOpacity
+              style={[styles.paymentOption, paymentMethod === 'cash_on_delivery' && styles.paymentOptionActive]}
+              onPress={() => setPaymentMethod('cash_on_delivery' as any)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="wallet-outline" size={20} color={paymentMethod === 'cash_on_delivery' ? ORDER_THEME.accent : ORDER_THEME.textSecondary} />
+              <Text style={[styles.paymentText, paymentMethod === 'cash_on_delivery' && styles.paymentTextActive]}>จ่ายปลายทาง</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.paymentOption, paymentMethod === 'wallet' && styles.paymentOptionActive]}
+              onPress={() => setPaymentMethod('wallet')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="card-outline" size={20} color={paymentMethod === 'wallet' ? ORDER_THEME.accent : ORDER_THEME.textSecondary} />
+              <Text style={[styles.paymentText, paymentMethod === 'wallet' && styles.paymentTextActive]}>เป๋าเงินในแอป</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.summaryBox}>
@@ -200,18 +212,18 @@ export default function CreateOpenRequest() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#FFFBF7' 
+  container: {
+    flex: 1,
+    backgroundColor: ORDER_THEME.backgroundAlt,
   },
   headerBox: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: ORDER_THEME.surface,
     borderBottomWidth: 1,
-    borderColor: '#F5EBE1',
+    borderColor: ORDER_THEME.borderSoft,
     gap: 12,
   },
   backBtn: {
@@ -237,67 +249,76 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+    paddingTop: 16,
   },
-  label: { 
-    fontSize: 13, 
-    fontWeight: '700', 
-    color: '#3A2113', 
-    marginBottom: 8 
-  },
-  pickerField: {
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8,
-    backgroundColor: '#FFFFFF', 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1',
-    borderRadius: 14, 
-    paddingHorizontal: 14, 
-    paddingVertical: 14,
+  sectionCard: {
+    backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
+    marginBottom: 12,
     shadowColor: '#3A2113',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     elevation: 1,
   },
-  pickerText: { 
-    flex: 1, 
-    fontSize: 14, 
-    color: '#3A2113', 
-    fontWeight: '600' 
+  label: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: ORDER_THEME.textPrimary,
+    marginBottom: 8,
   },
-  pickerPlaceholder: { 
-    color: '#B0A498', 
-    fontWeight: '500' 
+  pickerField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: ORDER_THEME.surfaceSoft,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  pickerText: {
+    flex: 1,
+    fontSize: 14,
+    color: ORDER_THEME.textPrimary,
+    fontWeight: '600',
+  },
+  pickerPlaceholder: {
+    color: ORDER_THEME.textMuted,
+    fontWeight: '500',
   },
   noteInput: {
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 14, 
-    paddingHorizontal: 14, 
+    backgroundColor: ORDER_THEME.surfaceSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
     paddingVertical: 14,
-    fontSize: 13, 
-    color: '#3A2113', 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1',
-    minHeight: 70, 
+    fontSize: 13,
+    color: ORDER_THEME.textPrimary,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
+    minHeight: 70,
     textAlignVertical: 'top',
   },
   feeInput: {
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 14, 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1',
-    paddingHorizontal: 16, 
-    paddingVertical: 14, 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: '#3A2113',
+    backgroundColor: ORDER_THEME.surfaceSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: ORDER_THEME.textPrimary,
   },
-  feeHint: { 
-    fontSize: 11, 
-    color: '#8B7E74', 
+  feeHint: {
+    fontSize: 11,
+    color: ORDER_THEME.textSecondary,
     marginTop: 6,
-    fontWeight: '500'
+    fontWeight: '500',
   },
   /* สไตล์สำหรับปุ่มเลือกวิธีการชำระเงิน */
   paymentRow: {
@@ -309,36 +330,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: ORDER_THEME.surfaceSoft,
     borderWidth: 1,
-    borderColor: '#F5EBE1',
+    borderColor: ORDER_THEME.borderSoft,
     borderRadius: 14,
     paddingVertical: 14,
     gap: 8,
   },
   paymentOptionActive: {
-    borderColor: '#FF7A30',
-    backgroundColor: '#FFF5EF',
+    borderColor: ORDER_THEME.accent,
+    backgroundColor: ORDER_THEME.accentSoft,
   },
   paymentText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#8B7E74',
+    color: ORDER_THEME.textSecondary,
   },
   paymentTextActive: {
-    color: '#FF7A30',
+    color: ORDER_THEME.accent,
   },
   summaryBox: {
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 16, 
-    padding: 16, 
-    marginTop: 20, 
-    borderWidth: 1, 
-    borderColor: '#F5EBE1',
+    backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.borderSoft,
     shadowColor: '#3A2113',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.01,
-    shadowRadius: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     elevation: 1,
   },
   summaryRow: { 
@@ -356,10 +377,10 @@ const styles = StyleSheet.create({
     fontWeight: '600', 
     color: '#3A2113' 
   },
-  divider: { 
-    height: 1, 
-    backgroundColor: '#F5EBE1', 
-    marginVertical: 6 
+  divider: {
+    height: 1,
+    backgroundColor: ORDER_THEME.borderSoft,
+    marginVertical: 6,
   },
   totalLabel: { 
     fontSize: 14, 
@@ -371,21 +392,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold', 
     color: '#FF7A30' 
   },
-  submitBtn: { 
-    backgroundColor: '#FF7A30', 
-    borderRadius: 14, 
-    paddingVertical: 16, 
-    alignItems: 'center', 
+  submitBtn: {
+    backgroundColor: ORDER_THEME.accent,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
     marginTop: 24,
-    shadowColor: '#FF7A30',
+    shadowColor: ORDER_THEME.accent,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.16,
     shadowRadius: 8,
     elevation: 3,
   },
-  submitBtnText: { 
-    color: '#FFFFFF', 
-    fontWeight: 'bold', 
-    fontSize: 16 
+  submitBtnText: {
+    color: ORDER_THEME.surface,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

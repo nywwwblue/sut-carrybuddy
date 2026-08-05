@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { TrustScoreBadge } from '@/components/TrustScoreBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmptyState } from '@/components/EmptyState';
+import { ORDER_THEME } from '@/constants/OrderTheme';
 
 interface OpenRequest {
   id: number;
@@ -65,6 +66,7 @@ export default function OpenRequestsBoard() {
   );
 
   const handleClaim = async (orderId: number) => {
+    if (claimingId !== null) return;
     setClaimingId(orderId);
     const { data, error } = await supabase.rpc('claim_open_order', { p_order_id: orderId });
     setClaimingId(null);
@@ -89,7 +91,7 @@ export default function OpenRequestsBoard() {
       <ScreenHeader title="บอร์ดคำขอเปิด" subtitle="คำขอฝากหิ้วที่ยังไม่มีใครรับ" />
 
       {loading ? (
-        <ActivityIndicator color="#FF7A30" style={{ marginTop: 40 }} />
+        <ActivityIndicator color={ORDER_THEME.accent} style={{ marginTop: 40 }} />
       ) : requests.length === 0 ? (
         <EmptyState icon="megaphone-outline" title="ยังไม่มีคำขอเปิดตอนนี้" />
       ) : (
@@ -111,10 +113,10 @@ export default function OpenRequestsBoard() {
               </View>
 
               <View style={styles.routeRow}>
-                <Ionicons name="storefront" size={14} color="#8B7E74" />
+                <Ionicons name="storefront" size={14} color={ORDER_THEME.textSecondary} />
                 <Text style={styles.routeText}>{item.storeName}</Text>
-                <Ionicons name="arrow-forward" size={12} color="#8B7E74" />
-                <Ionicons name="location" size={14} color="#8B7E74" />
+                <Ionicons name="arrow-forward" size={12} color={ORDER_THEME.textSecondary} />
+                <Ionicons name="location" size={14} color={ORDER_THEME.textSecondary} />
                 <Text style={styles.routeText}>{item.dropoffName}</Text>
               </View>
 
@@ -132,30 +134,30 @@ export default function OpenRequestsBoard() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF8EF' },
+  container: { flex: 1, backgroundColor: ORDER_THEME.backgroundAlt },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFFFFF',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: ORDER_THEME.surface,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
-  headerSubtitle: { fontSize: 11, color: '#8B7E74', marginTop: 2 },
-  emptyText: { textAlign: 'center', color: '#8B7E74', marginTop: 40 },
+  headerTitle: { fontSize: 16, fontWeight: 'bold', color: ORDER_THEME.textPrimary },
+  headerSubtitle: { fontSize: 11, color: ORDER_THEME.textSecondary, marginTop: 2 },
+  emptyText: { textAlign: 'center', color: ORDER_THEME.textSecondary, marginTop: 40 },
   card: {
-    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 14,
-    borderWidth: 1, borderColor: '#E8D5C4', gap: 10,
+    backgroundColor: ORDER_THEME.surface, borderRadius: 16, padding: 16, marginBottom: 14,
+    borderWidth: 1, borderColor: ORDER_THEME.border, gap: 10,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatar: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#4A90E2',
+    width: 36, height: 36, borderRadius: 18, backgroundColor: ORDER_THEME.info,
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
-  requesterName: { fontSize: 14, fontWeight: '700', color: '#3A2113', marginBottom: 4 },
-  fee: { fontSize: 14, fontWeight: 'bold', color: '#FF7A30' },
+  avatarText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 12 },
+  requesterName: { fontSize: 14, fontWeight: '700', color: ORDER_THEME.textPrimary, marginBottom: 4 },
+  fee: { fontSize: 14, fontWeight: 'bold', color: ORDER_THEME.accent },
   routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' },
-  routeText: { fontSize: 12, color: '#3A2113', fontWeight: '500' },
-  itemSummary: { fontSize: 12, color: '#8B7E74' },
-  claimBtn: { backgroundColor: '#FF7A30', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
-  claimBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
+  routeText: { fontSize: 12, color: ORDER_THEME.textPrimary, fontWeight: '500' },
+  itemSummary: { fontSize: 12, color: ORDER_THEME.textSecondary },
+  claimBtn: { backgroundColor: ORDER_THEME.accent, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
+  claimBtnText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 13 },
 });

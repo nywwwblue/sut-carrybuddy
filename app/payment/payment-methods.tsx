@@ -16,6 +16,8 @@ export default function TopUpWithdraw() {
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (submitting) return;
+
     const value = Number(amount);
     if (!value || value <= 0) {
       Alert.alert('จำนวนไม่ถูกต้อง', 'กรุณาระบุจำนวนเงินให้ถูกต้อง');
