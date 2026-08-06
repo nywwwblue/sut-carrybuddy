@@ -38,9 +38,13 @@ export default function Checkout() {
         .from('wallets')
         .select('available_balance')
         .eq('user_id', data.user.id)
-        .single()
-        .then(({ data: wallet }) => {
-          if (wallet) setWalletBalance(Number(wallet.available_balance));
+        .limit(1)
+        .then(({ data: wallets }) => {
+          if (wallets && wallets.length > 0) {
+            setWalletBalance(Number(wallets[0].available_balance));
+          } else {
+            setWalletBalance(0);
+          }
         });
     });
   }, []);

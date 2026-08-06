@@ -35,7 +35,7 @@ export default function FlashLiveScreen() {
         custom_dropoff_label
       `)
       .eq('post_id', flashPostId)
-      .in('status', ['accepted', 'delivering']);
+      .in('status', ['accepted', 'delivering', 'pending']);
 
     if (!error && data) {
       setIncomingOrders(data.map((row: any) => ({
@@ -48,7 +48,7 @@ export default function FlashLiveScreen() {
     setLoading(false);
   }, [flashPostId, routePass]);
 
-  // ระบบนับถอยหลัง 5 นาที (300 วินาที) และปิดบอร์ดอัตโนมัติเมื่อหมดเวลา
+  // ระบบนับถอยหลัง 5 นาที (300 วินาที)
   useEffect(() => {
     let secondsLeft = 300;
     const timer = setInterval(() => {
@@ -69,7 +69,6 @@ export default function FlashLiveScreen() {
 
   const handleExpireSession = async () => {
     if (!flashPostId) return;
-    // ปิดสถานะโพสต์ในฐานข้อมูลเมื่อครบ 5 นาที
     await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
     await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
     
@@ -77,19 +76,17 @@ export default function FlashLiveScreen() {
     router.replace('/runner/runner-home');
   };
 
-  // ใช้ useEffect เพื่อดักฟังการเปลี่ยนแปลงของออเดอร์ (Realtime)
   useEffect(() => {
     if (!flashPostId) return;
     loadIncomingOrders();
 
-    const channel = supabase
-      .channel('live_orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `post_id=eq.${flashPostId}` }, () => {
-        loadIncomingOrders();
-      })
-      .subscribe();
+    const interval = setInterval(() => {
+      loadIncomingOrders();
+    }, 3000);
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      clearInterval(interval);
+    };
   }, [flashPostId, loadIncomingOrders]);
 
   const totalBundleFee = incomingOrders.reduce((sum, order) => sum + order.fee, 0);
@@ -107,14 +104,12 @@ export default function FlashLiveScreen() {
     }
   };
 
-  // ฟังก์ชันสำหรับกดปิดบอร์ดด้วยตัวเอง
   const handleManualCloseFlash = async () => {
     if (!flashPostId) {
       router.replace('/(runner-tabs)');
       return;
     }
 
-    // อัปเดตสถานะปิดในฐานข้อมูลทั้ง 2 ตาราง
     await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
     await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
 
@@ -163,7 +158,6 @@ export default function FlashLiveScreen() {
           <Text style={styles.mainBundleBtnText}>รับทั้งหมด Bundle {totalBundleFee}฿</Text>
         </TouchableOpacity>
 
-        {/* เพิ่มปุ่มปิดบอร์ดตรงนี้ */}
         <TouchableOpacity 
           style={[styles.mainBundleBtn, { backgroundColor: '#E74C3C', marginTop: 12 }]} 
           onPress={handleManualCloseFlash}
@@ -186,29 +180,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E8D5C4',
   },
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF8EF',
-  },
-headerBox: {
-    flexDirection: 'row', // จัดเรียงปุ่มกับข้อความให้อยู่แถวเดียวกัน
+  container: { flex: 1, backgroundColor: '#FFF8EF' },
+  headerBox: {
+    flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: '#E8D5C4',
-    gap: 12, // ระยะห่างระหว่างปุ่มย้อนกลับกับหัวข้อ
+    gap: 12,
   },
-  headerTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#FF7A30',
-    flex: 1, // ให้ข้อความขยายเต็มพื้นที่ที่เหลือ
-  },
-  scrollContent: {
-    padding: 20,
-  },
+  headerTitle: { fontSize: 15, fontWeight: 'bold', color: '#FF7A30', flex: 1 },
+  scrollContent: { padding: 20 },
   timerCard: {
     backgroundColor: '#FF7A30',
     borderRadius: 20,
@@ -221,36 +205,11 @@ headerBox: {
     shadowRadius: 6,
     elevation: 3,
   },
-  timerStatusText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  timerDigits: {
-    color: '#FFFFFF',
-    fontSize: 36,
-    fontWeight: 'bold',
-    letterSpacing: 2,
-  },
-  timerNote: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 11,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#3A2113',
-    marginBottom: 12,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#B0A498',
-    fontSize: 13,
-    marginVertical: 20,
-  },
+  timerStatusText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  timerDigits: { color: '#FFFFFF', fontSize: 36, fontWeight: 'bold', letterSpacing: 2 },
+  timerNote: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 11, marginTop: 8, textAlign: 'center' },
+  sectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', marginBottom: 12 },
+  emptyText: { textAlign: 'center', color: '#B0A498', fontSize: 13, marginVertical: 20 },
   orderCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -261,17 +220,8 @@ headerBox: {
     borderWidth: 1,
     borderColor: '#E8D5C4',
   },
-  orderText: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#3A2113',
-    flex: 1,
-  },
-  cardFee: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2ECC71',
-  },
+  orderText: { fontSize: 13, fontWeight: 'bold', color: '#3A2113', flex: 1 },
+  cardFee: { fontSize: 14, fontWeight: 'bold', color: '#2ECC71' },
   mainBundleBtn: {
     backgroundColor: '#FF7A30',
     borderRadius: 16,
@@ -284,9 +234,5 @@ headerBox: {
     shadowRadius: 6,
     elevation: 2,
   },
-  mainBundleBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  mainBundleBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });

@@ -4,6 +4,9 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { ItemListEditor, EditableItem, calcItemTotal } from '@/components/ItemListEditor';
+import { ORDER_THEME } from '@/constants/OrderTheme';
+
+const COD_LIMIT = 200;
 
 interface FlashPostDetail {
   id: number;
@@ -15,21 +18,36 @@ interface FlashPostDetail {
   max_orders: number;
 }
 
+interface DropoffLocation {
+  id: number;
+  name: string;
+  zone?: string;
+}
+
 export default function FlashOrderScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const flashPostId = params.flashPostId ? Number(params.flashPostId) : null;
 
   const [postDetail, setPostDetail] = useState<FlashPostDetail | null>(null);
+  const [dropoffLocations, setDropoffLocations] = useState<DropoffLocation[]>([]);
+  const [selectedDropoffId, setSelectedDropoffId] = useState<number | null>(null);
+  const [customDropoffLabel, setCustomDropoffLabel] = useState('');
+
   const [items, setItems] = useState<EditableItem[]>([{ name: '', quantity: '1', price: '' }]);
   const [note, setNote] = useState('');
+  
+  const [paymentMode, setPaymentMode] = useState<'wallet' | 'cod'>('wallet');
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const itemTotal = calcItemTotal(items);
+  const total = itemTotal + (postDetail?.fee_per_order || 0);
 
-  // ดึงข้อมูลรายละเอียดของโพสต์ด่วนจากฐานข้อมูล
-  const loadFlashPostDetail = useCallback(async () => {
+  // ดึงข้อมูลโพสต์ด่วน สถานที่จัดส่ง และยอดเงินใน Wallet
+  const loadData = useCallback(async () => {
     if (!flashPostId) {
       setLoading(false);
       return;
@@ -37,7 +55,18 @@ export default function FlashOrderScreen() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        const { data: wallet } = await supabase
+          .from('wallets')
+          .select('available_balance')
+          .eq('user_id', userData.user.id)
+          .single();
+        if (wallet) setWalletBalance(Number(wallet.available_balance));
+      }
+
+      // โหลดข้อมูลโพสต์
+      const { data: postData, error: postError } = await supabase
         .from('runner_posts')
         .select(`
           id, runner_id, fee_per_order, max_orders,
@@ -48,8 +77,8 @@ export default function FlashOrderScreen() {
         .eq('id', flashPostId)
         .single();
 
-      if (!error && data) {
-        const raw = data as any;
+      if (!postError && postData) {
+        const raw = postData as any;
         setPostDetail({
           id: raw.id,
           runner_id: raw.runner_id,
@@ -60,6 +89,17 @@ export default function FlashOrderScreen() {
           max_orders: raw.max_orders || 5,
         });
       }
+
+      // โหลดจุดส่งของยอดฮิตใน มทส.
+      const { data: dropoffData } = await supabase
+        .from('dropoff_locations')
+        .select('id, name, zone')
+        .eq('is_active', true)
+        .limit(8);
+
+      if (dropoffData) {
+        setDropoffLocations(dropoffData as DropoffLocation[]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -69,17 +109,37 @@ export default function FlashOrderScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadFlashPostDetail();
-    }, [loadFlashPostDetail])
+      loadData();
+    }, [loadData])
   );
 
-  // ฟังก์ชันกดยืนยันเพื่อบันทึกคำสั่งซื้อเข้าระบบและล็อกเงินค้ำประกัน
   const handleConfirmOrder = async () => {
     if (submitting) return;
 
     const validItems = items.filter((i) => i.name.trim());
     if (validItems.length === 0) {
       Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกรายการสินค้าอย่างน้อย 1 อย่างครับ');
+      return;
+    }
+    if (!selectedDropoffId && !customDropoffLabel.trim()) {
+      Alert.alert('ข้อมูลไม่ครบ', 'กรุณาเลือกหรือระบุจุดส่งของปลายทางของคุณ');
+      return;
+    }
+
+    // คำนวณยอดเงินสดๆ ณ ตอนกดปุ่ม เพื่อความแม่นยำสูงสุด
+    const currentItemTotal = calcItemTotal(items);
+    const currentFee = postDetail?.fee_per_order || 0;
+    const calculatedTotal = currentItemTotal + currentFee;
+    const currentWalletBalance = walletBalance !== null ? Number(walletBalance) : 0;
+
+    if (paymentMode === 'cod' && calculatedTotal > COD_LIMIT) {
+      Alert.alert('เกินวงเงิน COD', `ออเดอร์ชำระปลายทางได้ไม่เกิน ฿${COD_LIMIT} กรุณาเลือกชำระผ่าน Wallet แทน`);
+      return;
+    }
+    
+    // ตรวจสอบยอดเงิน Wallet 
+    if (paymentMode === 'wallet' && currentWalletBalance < calculatedTotal) {
+      Alert.alert('เงินใน Wallet ไม่พอ', `ยอดคงเหลือ ฿${currentWalletBalance.toFixed(2)} แต่ต้องใช้ ฿${calculatedTotal.toFixed(2)}`);
       return;
     }
 
@@ -90,6 +150,7 @@ export default function FlashOrderScreen() {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) return;
 
+      // 1. สร้างออเดอร์สถานะ pending เพื่อให้ระบบล็อกเงิน escrow ได้ถูกต้อง
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -97,10 +158,12 @@ export default function FlashOrderScreen() {
           post_id: postDetail.id,
           runner_id: postDetail.runner_id,
           store_id: postDetail.store_id,
-          payment_mode: 'wallet',
-          item_total: itemTotal,
-          fee: postDetail.fee_per_order,
-          status: 'accepted', // ตั้งเป็น accepted อัตโนมัติสำหรับฟลอร์จอยด่วนไม่ต้องรออนุมัติ
+          payment_mode: paymentMode,
+          item_total: currentItemTotal,
+          fee: currentFee,
+          status: 'pending',
+          dropoff_id: selectedDropoffId,
+          custom_dropoff_label: selectedDropoffId ? null : customDropoffLabel.trim(),
         })
         .select('id')
         .single();
@@ -108,14 +171,16 @@ export default function FlashOrderScreen() {
       if (orderError || !orderData) throw orderError ?? new Error('ไม่สามารถสร้างออเดอร์ได้');
 
       try {
-        const totalAmount = itemTotal + postDetail.fee_per_order;
-        const { error: escrowError } = await supabase.rpc('lock_order_escrow', {
-          p_order_id: orderData.id,
-          p_total_amount: totalAmount,
-        });
+        // 2. ถ้าเลือก Wallet ให้ทำการล็อกเงินมัดจำ
+        if (paymentMode === 'wallet') {
+          const { error: escrowError } = await supabase.rpc('lock_order_escrow', {
+            p_order_id: orderData.id,
+            p_total_amount: calculatedTotal,
+          });
+          if (escrowError) throw escrowError;
+        }
 
-        if (escrowError) throw escrowError;
-
+        // 3. บันทึกรายการสินค้า
         const { error: itemsError } = await supabase.from('order_items').insert(
           validItems.map((i) => ({
             order_id: orderData.id,
@@ -128,11 +193,12 @@ export default function FlashOrderScreen() {
 
         if (itemsError) throw itemsError;
 
+        // 4. บันทึก Log สถานะ
         await supabase.from('order_status_logs').insert({
           order_id: orderData.id,
           changed_by: userData.user.id,
-          status: 'accepted',
-          note: 'สร้างคำขอจาก Flash Buy และล็อกเงินสำเร็จ',
+          status: 'pending',
+          note: 'สร้างคำขอจาก Flash Buy และยืนยันการชำระเงินแล้ว',
         });
       } catch (err: any) {
         await supabase.from('orders').delete().eq('id', orderData.id);
@@ -170,7 +236,6 @@ export default function FlashOrderScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* ส่วนหัวปิด-ย้อนกลับ ชิดขอบจอพอดีสวยงาม */}
       <View style={styles.headerBox}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={20} color="#3A2113" />
@@ -182,7 +247,7 @@ export default function FlashOrderScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* การ์ดสรุปพิกัดร้านค้าและคนหิ้วใน มทส. */}
+        {/* ข้อมูลร้านค้าและไรเดอร์ */}
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={styles.iconCircle}>
@@ -205,10 +270,72 @@ export default function FlashOrderScreen() {
           </View>
         </View>
 
-        {/* เรียกตัวจัดการเพิ่ม/ลบรายการสินค้าที่ผู้ใช้พิมพ์เลือกปกติ */}
-        <Text style={styles.sectionLabel}>รายการสินค้าที่คุณต้องการสั่ง</Text>
+        {/* เลือกจุดส่งของปลายทาง (Dropoff) */}
+        <Text style={styles.sectionLabel}>เลือกจุดส่งของปลายทาง (Dropoff)</Text>
+        <TextInput
+          style={styles.locationInput}
+          placeholder="พิมพ์ระบุจุดส่งเอง เช่น หอพักสุรนิเวศ 16..."
+          placeholderTextColor="#B0A498"
+          value={customDropoffLabel}
+          onChangeText={(text) => {
+            setCustomDropoffLabel(text);
+            setSelectedDropoffId(null);
+          }}
+        />
+        <View style={styles.chipGrid}>
+          {dropoffLocations.map((loc) => {
+            const isSelected = selectedDropoffId === loc.id;
+            return (
+              <TouchableOpacity
+                key={loc.id}
+                style={[styles.chip, isSelected && styles.chipActive]}
+                onPress={() => {
+                  setSelectedDropoffId(loc.id);
+                  setCustomDropoffLabel(loc.name);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                  {loc.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* เลือกวิธีชำระเงิน */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>เลือกวิธีชำระเงิน</Text>
+        <View style={styles.paymentRow}>
+          <TouchableOpacity
+            style={[styles.paymentCard, paymentMode === 'wallet' && styles.paymentCardActive]}
+            onPress={() => setPaymentMode('wallet')}
+          >
+            <Ionicons name="wallet" size={20} color="#FF7A30" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.paymentTitle}>In-App Wallet</Text>
+              <Text style={styles.paymentDesc}>ยอดคงเหลือ ฿{walletBalance !== null ? walletBalance.toFixed(2) : '...'}</Text>
+            </View>
+            <Ionicons name={paymentMode === 'wallet' ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={paymentMode === 'wallet' ? '#FF7A30' : '#D9CFC5'} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.paymentCard, paymentMode === 'cod' && styles.paymentCardActive]}
+            onPress={() => setPaymentMode('cod')}
+          >
+            <Ionicons name="cash" size={20} color="#FF7A30" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.paymentTitle}>ชำระปลายทาง COD</Text>
+              <Text style={styles.paymentDesc}>ไม่เกิน ฿{COD_LIMIT}</Text>
+            </View>
+            <Ionicons name={paymentMode === 'cod' ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={paymentMode === 'cod' ? '#FF7A30' : '#D9CFC5'} />
+          </TouchableOpacity>
+        </View>
+
+        {/* รายการสินค้า */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>รายการสินค้าที่คุณต้องการสั่ง</Text>
         <ItemListEditor items={items} onChange={setItems} />
 
+        {/* หมายเหตุ */}
         <Text style={[styles.sectionLabel, { marginTop: 16 }]}>หมายเหตุถึงไรเดอร์ (ไม่บังคับ)</Text>
         <TextInput
           style={styles.noteInput}
@@ -219,7 +346,7 @@ export default function FlashOrderScreen() {
           multiline
         />
 
-        {/* กล่องสรุปการคำนวณเงินสดมัดจำล่วงหน้า */}
+        {/* สรุปยอดเงิน */}
         <View style={styles.summaryBox}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>รวมราคาสินค้าโดยประมาณ</Text>
@@ -231,8 +358,8 @@ export default function FlashOrderScreen() {
           </View>
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>ยอดรวมมัดจำในระบบ</Text>
-            <Text style={styles.totalValue}>฿{(itemTotal + postDetail.fee_per_order).toFixed(0)}</Text>
+            <Text style={styles.totalLabel}>ยอดรวมทั้งสิ้น</Text>
+            <Text style={styles.totalValue}>฿{total.toFixed(0)}</Text>
           </View>
         </View>
 
@@ -244,175 +371,44 @@ export default function FlashOrderScreen() {
   );
 }
 
-// 🎨 จัดสไตล์เรียงบรรทัดแยก Property มินิมอล สวยระเบียบ
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFBF7',
-  },
-  center: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  headerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderColor: '#F5EBE1',
-    gap: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#3A2113',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#8B7E74',
-    marginTop: 2,
-  },
-  scrollContent: {
-    padding: 20,
-  },
-  infoCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#F5EBE1',
-    marginBottom: 20,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textData: {
-    flex: 1,
-  },
-  cardLabel: {
-    fontSize: 11,
-    color: '#8B7E74',
-    fontWeight: '600',
-  },
-  cardValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#3A2113',
-    marginTop: 2,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#3A2113',
-    marginBottom: 8,
-  },
-  noteInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 13,
-    color: '#3A2113',
-    borderWidth: 1,
-    borderColor: '#F5EBE1',
-    minHeight: 65,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-  },
-  summaryBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#F5EBE1',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  summaryLabel: {
-    fontSize: 13,
-    color: '#8B7E74',
-    fontWeight: '500',
-  },
-  summaryValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#3A2113',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F5EBE1',
-    marginVertical: 6,
-  },
-  totalLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#3A2113',
-  },
-  totalValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FF7A30',
-  },
-  submitBtn: {
-    backgroundColor: '#FF7A30',
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 24,
-    shadowColor: '#FF7A30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  submitBtnText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#8B7E74',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  backLink: {
-    marginTop: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#FFF3EB',
-    borderRadius: 10,
-  },
-  backLinkText: {
-    color: '#FF7A30',
-    fontWeight: '700',
-    fontSize: 13,
-  },
+  container: { flex: 1, backgroundColor: '#FFFBF7' },
+  center: { justifyContent: 'center', alignItems: 'center', padding: 20 },
+  headerBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderColor: '#F5EBE1', gap: 12 },
+  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
+  headerInfo: { flex: 1 },
+  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
+  headerSubtitle: { fontSize: 12, color: '#8B7E74', marginTop: 2 },
+  scrollContent: { padding: 20 },
+  infoCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F5EBE1', marginBottom: 20 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
+  textData: { flex: 1 },
+  cardLabel: { fontSize: 11, color: '#8B7E74', fontWeight: '600' },
+  cardValue: { fontSize: 14, fontWeight: 'bold', color: '#3A2113', marginTop: 2 },
+  sectionLabel: { fontSize: 13, fontWeight: '700', color: '#3A2113', marginBottom: 8 },
+  locationInput: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 13, color: '#3A2113', borderWidth: 1, borderColor: '#F5EBE1', marginBottom: 10 },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  chip: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8D5C4', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  chipActive: { backgroundColor: '#FFF3EB', borderColor: '#FF7A30' },
+  chipText: { fontSize: 12, color: '#3A2113', fontWeight: '600' },
+  chipTextActive: { color: '#FF7A30', fontWeight: '700' },
+  paymentRow: { flexDirection: 'row', gap: 10 },
+  paymentCard: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#F5EBE1', gap: 6 },
+  paymentCardActive: { borderColor: '#FF7A30', borderWidth: 1.5, backgroundColor: '#FFF3EB' },
+  paymentTitle: { fontSize: 13, fontWeight: 'bold', color: '#3A2113' },
+  paymentDesc: { fontSize: 11, color: '#8B7E74' },
+  noteInput: { backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontSize: 13, color: '#3A2113', borderWidth: 1, borderColor: '#F5EBE1', minHeight: 65, textAlignVertical: 'top' },
+  summaryBox: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F5EBE1', marginTop: 20 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  summaryLabel: { fontSize: 13, color: '#8B7E74', fontWeight: '500' },
+  summaryValue: { fontSize: 13, fontWeight: '600', color: '#3A2113' },
+  divider: { height: 1, backgroundColor: '#F5EBE1', marginVertical: 6 },
+  totalLabel: { fontSize: 14, fontWeight: 'bold', color: '#3A2113' },
+  totalValue: { fontSize: 16, fontWeight: 'bold', color: '#FF7A30' },
+  submitBtn: { backgroundColor: '#FF7A30', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24, shadowColor: '#FF7A30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 3 },
+  submitBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
+  errorText: { fontSize: 14, color: '#8B7E74', textAlign: 'center', fontWeight: '500' },
+  backLink: { marginTop: 14, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#FFF3EB', borderRadius: 10 },
+  backLinkText: { color: '#FF7A30', fontWeight: '700', fontSize: 13 },
 });

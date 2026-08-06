@@ -8,7 +8,8 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { ORDER_THEME } from '@/constants/OrderTheme';
 import { StatusPill } from '@/components/StatusPill';
 
-// 📐 ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
+
+// ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
@@ -16,18 +17,22 @@ function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: num
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
   const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
+
   const a =
     Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
+
   return R * c;
 }
+
 
 function calculateETA(distanceMeters: number) {
   const estimatedRoadDistance = distanceMeters * 1.35;
   const SPEED_METERS_PER_MIN = 416; // 25 กม./ชม.
   const minutes = Math.ceil(estimatedRoadDistance / SPEED_METERS_PER_MIN);
+
 
   let distanceText = '';
   if (estimatedRoadDistance >= 1000) {
@@ -36,8 +41,10 @@ function calculateETA(distanceMeters: number) {
     distanceText = `${Math.round(estimatedRoadDistance)} เมตร`;
   }
 
+
   return { distanceText, minutes: minutes < 1 ? 1 : minutes };
 }
+
 
 function formatDisplayDate(value?: string | null) {
   if (!value) return 'ไม่ทราบวันที่';
@@ -54,12 +61,15 @@ function formatDisplayDate(value?: string | null) {
   }
 }
 
+
 // 📡 คอมโพเนนต์ LiveTrackingCard สำหรับคนฝากหิ้ว
 function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number | string; dropoffLat: number; dropoffLng: number }) {
   const [etaInfo, setEtaInfo] = useState<{ distanceText: string; minutes: number } | null>(null);
 
+
   useEffect(() => {
     if (!orderId || !dropoffLat || !dropoffLng) return;
+
 
     const channel = supabase
       .channel(`runner-location-${orderId}`)
@@ -82,10 +92,12 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
       )
       .subscribe();
 
+
     return () => {
       supabase.removeChannel(channel);
     };
   }, [orderId, dropoffLat, dropoffLng]);
+
 
   if (!etaInfo) {
     return (
@@ -95,6 +107,7 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
       </View>
     );
   }
+
 
   return (
     <View style={trackingStyles.card}>
@@ -106,6 +119,7 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
         <Text style={trackingStyles.distanceText}>ห่างจากคุณ {etaInfo.distanceText}</Text>
       </View>
 
+
       <View style={trackingStyles.etaContainer}>
         <Ionicons name="time" size={26} color="#FF7A30" />
         <View>
@@ -116,6 +130,7 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
     </View>
   );
 }
+
 
 const STEP_ORDER = ['pending', 'accepted', 'buying', 'bought', 'delivering', 'completed'];
 const STEP_LABELS: Record<string, string> = {
@@ -134,10 +149,12 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   delivering: ['completed'],
 };
 
+
 function canTransitionTo(currentStatus: string, nextStatus: string) {
   if (!currentStatus || currentStatus === 'completed' || currentStatus === 'cancelled') return false;
   return (ALLOWED_TRANSITIONS[currentStatus] || []).includes(nextStatus);
 }
+
 
 interface OrderDetail {
   id: number;
@@ -158,17 +175,20 @@ interface OrderDetail {
   dropoffLng: number | null;
 }
 
+
 export default function OrderDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const orderId = params.orderId as string | undefined;
   const viewMode = params.mode as string | undefined; // รองรับการส่ง mode='runner' หรือ 'requester'
 
+
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
@@ -178,13 +198,16 @@ export default function OrderDetailScreen() {
       return;
     }
 
+
     setLoading(true);
     setLoadError(null);
+
 
     try {
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id ?? null;
       setMyUserId(uid);
+
 
       const { data, error } = await supabase
         .from('orders')
@@ -199,17 +222,21 @@ export default function OrderDetailScreen() {
         .eq('id', orderId)
         .single();
 
+
       if (error) throw error;
       if (!data) throw new Error('ไม่พบออเดอร์นี้');
+
 
       const row = data as any;
       const reqId = row.requester_id ? String(row.requester_id).trim() : '';
       const runId = row.runner_id ? String(row.runner_id).trim() : null;
 
+
       const isRunnerUser = uid && runId && String(uid).trim() === runId;
       const otherUserId = isRunnerUser ? reqId : runId;
       let otherName = 'ไม่ทราบชื่อ';
       let otherTrust = 100;
+
 
       if (otherUserId) {
         const { data: otherUser } = await supabase
@@ -223,13 +250,16 @@ export default function OrderDetailScreen() {
         }
       }
 
+
       const storeLat = row.store?.lat ? Number(row.store.lat) : row.custom_store_lat ? Number(row.custom_store_lat) : null;
       const storeLng = row.store?.lng ? Number(row.store.lng) : row.custom_store_lng ? Number(row.custom_store_lng) : null;
       const storeLabel = row.store?.name || row.custom_store_label || 'ร้านค้า';
 
+
       const dropoffLat = row.dropoff?.lat ? Number(row.dropoff.lat) : row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
       const dropoffLng = row.dropoff?.lng ? Number(row.dropoff.lng) : row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
       const dropoffLabel = row.dropoff?.name || row.custom_dropoff_label || 'จุดส่งของ';
+
 
       setOrder({
         id: row.id,
@@ -258,28 +288,34 @@ export default function OrderDetailScreen() {
     }
   }, [orderId]);
 
+
   useFocusEffect(
     useCallback(() => {
       loadOrder();
     }, [loadOrder])
   );
 
+
   // 🔑 ปรับแก้เงื่อนไขสิทธิ์ให้ทำงานถูกต้องแม้อยู่ในขั้นตอนทดสอบ:
   const uidStr = myUserId ? String(myUserId).trim() : '';
   const reqIdStr = order?.requester_id ? String(order.requester_id).trim() : '';
   const runIdStr = order?.runner_id ? String(order.runner_id).trim() : '';
 
+
   // ถ้าส่ง mode='runner' มา บังคับให้เป็น Runner ทันที หรือถ้าไอดีตรงกับ runner_id และไม่ตรงกับ requester_id
   const isRunner = viewMode === 'runner' || (Boolean(uidStr && runIdStr && uidStr === runIdStr) && uidStr !== reqIdStr);
   const isRequester = !isRunner;
 
+
   const currentStepIndex = order ? STEP_ORDER.indexOf(order.status) : -1;
+
 
   const openNavigation = (lat: number | null, lng: number | null, label: string | null) => {
     if (!lat || !lng) {
       Alert.alert('ไม่พบพิกัด', 'สถานที่นี้ไม่ได้ระบุพิกัดบนแผนที่ไว้');
       return;
     }
+
 
     const encodedLabel = encodeURIComponent(label || 'จุดหมาย');
     const scheme = Platform.OS === 'ios' ? 'maps:' : 'geo:';
@@ -288,7 +324,9 @@ export default function OrderDetailScreen() {
       android: `google.navigation:q=${lat},${lng}`,
     });
 
+
     const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
 
     Linking.canOpenURL(url!)
       .then((supported) => {
@@ -303,15 +341,19 @@ export default function OrderDetailScreen() {
       });
   };
 
+
   const updateStatus = async (newStatus: string) => {
     if (!order || updating) return;
+
 
     if (!canTransitionTo(order.status, newStatus)) {
       Alert.alert('สถานะไม่ถูกต้อง', 'ไม่สามารถอัปเดตสถานะนี้จากสถานะปัจจุบันได้');
       return;
     }
 
+
     setUpdating(true);
+
 
     try {
       if (newStatus === 'completed' && order.payment_mode === 'wallet') {
@@ -323,7 +365,9 @@ export default function OrderDetailScreen() {
           .update({ status: newStatus })
           .eq('id', order.id);
 
+
         if (updateError) throw updateError;
+
 
         const { error: logError } = await supabase.from('order_status_logs').insert({
           order_id: order.id,
@@ -332,8 +376,10 @@ export default function OrderDetailScreen() {
           note: `เปลี่ยนสถานะเป็น ${STEP_LABELS[newStatus] || newStatus}`,
         });
 
+
         if (logError) throw logError;
       }
+
 
       await loadOrder();
     } catch (error: any) {
@@ -343,9 +389,11 @@ export default function OrderDetailScreen() {
     }
   };
 
+
   const handleConfirmCOD = async () => {
     if (!order || updating) return;
     setUpdating(true);
+
 
     try {
       const { error: rpcError } = await supabase.rpc('settle_cod_order', {
@@ -353,7 +401,9 @@ export default function OrderDetailScreen() {
         p_changed_by: myUserId,
       });
 
+
       if (rpcError) throw rpcError;
+
 
       Alert.alert('สำเร็จ', 'ยืนยันรับเงินและจบงานเรียบร้อยแล้ว');
       router.replace('/(runner-tabs)');
@@ -363,6 +413,7 @@ export default function OrderDetailScreen() {
       setUpdating(false);
     }
   };
+
 
   const handleCancelOrder = async () => {
     if (!order || updating) return;
@@ -377,6 +428,7 @@ export default function OrderDetailScreen() {
             const { error: updateError } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
             if (updateError) throw updateError;
 
+
             const { error: logError } = await supabase.from('order_status_logs').insert({
               order_id: order.id,
               changed_by: myUserId,
@@ -384,6 +436,7 @@ export default function OrderDetailScreen() {
               note: 'ผู้ใช้ยกเลิกออเดอร์',
             });
             if (logError) throw logError;
+
 
             Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์เรียบร้อยแล้ว');
             router.back();
@@ -397,6 +450,7 @@ export default function OrderDetailScreen() {
     ]);
   };
 
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, styles.centerContent]}>
@@ -404,6 +458,7 @@ export default function OrderDetailScreen() {
       </SafeAreaView>
     );
   }
+
 
   if (!order) {
     return (
@@ -417,10 +472,12 @@ export default function OrderDetailScreen() {
     );
   }
 
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <ScreenHeader title="อัปเดตสถานะ" subtitle={`Order #${order.id}`} />
+
 
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
@@ -430,6 +487,7 @@ export default function OrderDetailScreen() {
             </View>
             <StatusPill status={order.status} />
           </View>
+
 
           <View style={styles.heroMetaRow}>
             <View style={styles.heroMetaBox}>
@@ -446,6 +504,7 @@ export default function OrderDetailScreen() {
             </View>
           </View>
         </View>
+
 
         {/* Timeline */}
         <View style={styles.timeline}>
@@ -470,17 +529,19 @@ export default function OrderDetailScreen() {
           })}
         </View>
 
+
         {/* 📡 1. มุมมองฝั่งคนฝากหิ้ว (REQUESTER) */}
         {isRequester && (
           <View style={{ marginVertical: 4 }}>
             {/* LIVE TRACKING: แสดงระยะทางสด + เวลาคงเหลือ (เฉพาะตอนกำลังส่ง) */}
             {order.status === 'delivering' && (
-              <LiveTrackingCard 
-                orderId={order.id} 
-                dropoffLat={order.dropoffLat ?? 0} 
-                dropoffLng={order.dropoffLng ?? 0} 
+              <LiveTrackingCard
+                orderId={order.id}
+                dropoffLat={order.dropoffLat ?? 0}
+                dropoffLng={order.dropoffLng ?? 0}
               />
             )}
+
 
             {/* ปุ่มยกเลิกออเดอร์ */}
             {order.status === 'pending' && (
@@ -488,6 +549,7 @@ export default function OrderDetailScreen() {
                 <Text style={styles.cancelBtnText}>ยกเลิกออเดอร์นี้</Text>
               </TouchableOpacity>
             )}
+
 
             {/* ปุ่มให้คะแนนผู้รับหิ้ว */}
             {order.status === 'completed' && (
@@ -499,7 +561,8 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* 🧭 2. มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
+
+        {/* มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
         {isRunner && (
           <View style={{ marginVertical: 4 }}>
             {/* ศูนย์นำทาง GPS */}
@@ -515,6 +578,7 @@ export default function OrderDetailScreen() {
                     <Text style={styles.navBtnText}>ไปร้านค้า</Text>
                   </TouchableOpacity>
 
+
                   <TouchableOpacity
                     style={[styles.navBtn, { backgroundColor: '#2ECC71' }]}
                     onPress={() => openNavigation(order.dropoffLat, order.dropoffLng, order.dropoffLabel)}
@@ -525,6 +589,7 @@ export default function OrderDetailScreen() {
                 </View>
               </View>
             )}
+
 
             {/* ปุ่มชำระเงิน COD */}
             {order.payment_mode === 'cod' && order.status === 'delivering' && (
@@ -544,6 +609,7 @@ export default function OrderDetailScreen() {
             )}
           </View>
         )}
+
 
         {/* Items */}
         <View style={styles.itemsCard}>
@@ -570,12 +636,14 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+
         {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner (อัปเดตให้แสดงผลถูกต้องหลังรวมโค้ด) */}
         {isRunner && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
           <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
             {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
           </TouchableOpacity>
         )}
+
 
         {/* QR Code (Wallet mode) */}
         {order.payment_mode === 'wallet' && (
@@ -591,8 +659,8 @@ export default function OrderDetailScreen() {
             ) : (
               <View style={styles.qrContainer}>
                 <Text style={styles.qrLabel}>ยืนยันการรับสินค้า</Text>
-                <TouchableOpacity 
-                  style={styles.regenerateButton} 
+                <TouchableOpacity
+                  style={styles.regenerateButton}
                   onPress={() => router.push({ pathname: '/qr-scanner', params: { orderId: order.id } })}
                 >
                   <Ionicons name="camera" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
@@ -603,6 +671,7 @@ export default function OrderDetailScreen() {
             )}
           </View>
         )}
+
 
         {/* Other party Info */}
         <View style={styles.riderSection}>
@@ -623,6 +692,7 @@ export default function OrderDetailScreen() {
                   return;
                 }
 
+
                 const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
                   other_user_id: otherPartyId,
                 });
@@ -638,11 +708,13 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+
         <View style={styles.spacer} />
       </ScrollView>
     </SafeAreaView>
   );
 }
+
 
 const trackingStyles = StyleSheet.create({
   card: {
@@ -671,10 +743,11 @@ const trackingStyles = StyleSheet.create({
   etaValue: { fontSize: 16, fontWeight: 'bold', color: '#FF7A30' },
 });
 
+
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: ORDER_THEME.backgroundAlt 
+  container: {
+    flex: 1,
+    backgroundColor: ORDER_THEME.backgroundAlt
   },
   centerContent: {
     alignItems: 'center',
@@ -759,62 +832,62 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: ORDER_THEME.textPrimary,
   },
-  timeline: { 
-    backgroundColor: '#FFFFFF', 
-    marginHorizontal: 16, 
-    marginVertical: 12, 
-    borderRadius: 16, 
+  timeline: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 16,
     padding: 20,
-    shadowColor: '#3A2113', 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.05, 
-    shadowRadius: 10, 
+    shadowColor: '#3A2113',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
   },
-  timelineItem: { 
-    flexDirection: 'row', 
-    minHeight: 50 
+  timelineItem: {
+    flexDirection: 'row',
+    minHeight: 50
   },
   timelineCircle: {
-    width: 24, 
-    height: 24, 
-    borderRadius: 12, 
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: ORDER_THEME.borderSoft,
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginRight: 16, 
-    marginTop: 2, 
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+    marginTop: 2,
     zIndex: 2,
   },
-  timelineCircleCompleted: { 
-    backgroundColor: '#FF7A30' 
+  timelineCircleCompleted: {
+    backgroundColor: '#FF7A30'
   },
-  timelineLine: { 
-    width: 3, 
-    position: 'absolute', 
-    left: 10, 
-    top: 26, 
-    bottom: -10, 
-    backgroundColor: ORDER_THEME.borderSoft, 
-    zIndex: 1 
+  timelineLine: {
+    width: 3,
+    position: 'absolute',
+    left: 10,
+    top: 26,
+    bottom: -10,
+    backgroundColor: ORDER_THEME.borderSoft,
+    zIndex: 1
   },
-  timelineLineCompleted: { 
-    backgroundColor: '#FF7A30' 
+  timelineLineCompleted: {
+    backgroundColor: '#FF7A30'
   },
-  timelineContent: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    paddingBottom: 16 
+  timelineContent: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingBottom: 16
   },
-  timelineLabel: { 
-    fontSize: 14, 
-    color: ORDER_THEME.textMuted, 
-    fontWeight: '500' 
+  timelineLabel: {
+    fontSize: 14,
+    color: ORDER_THEME.textMuted,
+    fontWeight: '500'
   },
-  timelineLabelCompleted: { 
-    color: '#3A2113', 
-    fontWeight: '600', 
-    fontSize: 15 
+  timelineLabelCompleted: {
+    color: '#3A2113',
+    fontWeight: '600',
+    fontSize: 15
   },
   navSection: {
     marginHorizontal: 16,
@@ -851,210 +924,210 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   itemsCard: {
-    marginHorizontal: 16, 
-    marginBottom: 16, 
-    backgroundColor: '#FFFFFF', 
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 16, 
-    borderWidth: 1, 
+    padding: 16,
+    borderWidth: 1,
     borderColor: '#F5EBE1',
-    shadowColor: '#3A2113', 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.03, 
-    shadowRadius: 6, 
+    shadowColor: '#3A2113',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
     elevation: 1,
   },
-  itemsTitle: { 
-    fontSize: 14, 
-    fontWeight: 'bold', 
-    color: '#3A2113', 
-    marginBottom: 10, 
-    letterSpacing: 0.3 
+  itemsTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#3A2113',
+    marginBottom: 10,
+    letterSpacing: 0.3
   },
-  dropoffRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 6, 
-    backgroundColor: '#FFF3EB', 
-    padding: 10, 
-    borderRadius: 10, 
-    marginBottom: 8 
+  dropoffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF3EB',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 8
   },
-  dropoffText: { 
-    fontSize: 13, 
-    color: '#FF7A30', 
-    fontWeight: '600' 
+  dropoffText: {
+    fontSize: 13,
+    color: '#FF7A30',
+    fontWeight: '600'
   },
-  itemLine: { 
-    fontSize: 14, 
-    color: '#5C4638', 
-    paddingVertical: 4 
+  itemLine: {
+    fontSize: 14,
+    color: '#5C4638',
+    paddingVertical: 4
   },
-  divider: { 
-    height: 1, 
-    backgroundColor: ORDER_THEME.borderSoft, 
-    marginVertical: 12 
+  divider: {
+    height: 1,
+    backgroundColor: ORDER_THEME.borderSoft,
+    marginVertical: 12
   },
-  itemsTotalRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center' 
+  itemsTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
   },
-  itemsTotalLabel: { 
-    fontSize: 14, 
-    color: ORDER_THEME.textSecondary 
+  itemsTotalLabel: {
+    fontSize: 14,
+    color: ORDER_THEME.textSecondary
   },
-  itemsTotalValue: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: ORDER_THEME.accent 
+  itemsTotalValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: ORDER_THEME.accent
   },
   advanceBtn: {
-    marginHorizontal: 16, 
-    marginBottom: 16, 
-    backgroundColor: ORDER_THEME.accent, 
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: ORDER_THEME.accent,
     borderRadius: 14,
-    paddingVertical: 16, 
-    alignItems: 'center', 
-    shadowColor: ORDER_THEME.accent, 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.2, 
-    shadowRadius: 8, 
+    paddingVertical: 16,
+    alignItems: 'center',
+    shadowColor: ORDER_THEME.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
     elevation: 3,
   },
-  advanceBtnText: { 
-    color: '#FFFFFF', 
-    fontWeight: 'bold', 
-    fontSize: 16 
+  advanceBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16
   },
   cancelBtn: {
-    marginHorizontal: 16, 
-    marginBottom: 16, 
-    backgroundColor: ORDER_THEME.danger, 
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: ORDER_THEME.danger,
     borderRadius: 14,
-    paddingVertical: 16, 
+    paddingVertical: 16,
     alignItems: 'center',
-    shadowColor: ORDER_THEME.danger, 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.2, 
-    shadowRadius: 8, 
+    shadowColor: ORDER_THEME.danger,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
     elevation: 3,
   },
-  cancelBtnText: { 
-    color: '#FFFFFF', 
-    fontWeight: 'bold', 
-    fontSize: 16 
+  cancelBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16
   },
-  qrSection: { 
-    paddingHorizontal: 16, 
-    marginBottom: 20, 
-    gap: 12 
+  qrSection: {
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    gap: 12
   },
-  qrContainer: { 
+  qrContainer: {
     backgroundColor: ORDER_THEME.surface,
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: ORDER_THEME.borderSoft, 
-    alignItems: 'center', 
-    gap: 12 
+    borderColor: ORDER_THEME.borderSoft,
+    alignItems: 'center',
+    gap: 12
   },
-  qrBox: { 
-    padding: 12, 
-    backgroundColor: ORDER_THEME.backgroundAlt, 
-    borderRadius: 12, 
-    borderWidth: 1, 
-    borderColor: ORDER_THEME.border 
+  qrBox: {
+    padding: 12,
+    backgroundColor: ORDER_THEME.backgroundAlt,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.border
   },
-  qrLabel: { 
-    fontSize: 13, 
-    fontWeight: '600', 
-    color: '#5C4638' 
+  qrLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#5C4638'
   },
-  qrHintText: { 
-    fontSize: 12, 
-    color: ORDER_THEME.textSecondary, 
-    textAlign: 'center', 
-    lineHeight: 18 
+  qrHintText: {
+    fontSize: 12,
+    color: ORDER_THEME.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18
   },
-  regenerateButton: { 
-    backgroundColor: '#FF7A30', 
-    borderRadius: 14, 
-    paddingVertical: 16, 
-    alignItems: 'center' 
+  regenerateButton: {
+    backgroundColor: '#FF7A30',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center'
   },
-  regenerateButtonText: { 
-    fontSize: 16, 
-    fontWeight: 'bold', 
-    color: '#FFFFFF' 
+  regenerateButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF'
   },
-  codSection: { 
-    marginHorizontal: 16, 
-    marginBottom: 20, 
-    backgroundColor: ORDER_THEME.surface, 
-    borderRadius: 16, 
-    padding: 16, 
-    gap: 12, 
-    borderWidth: 1, 
-    borderColor: ORDER_THEME.infoSoft 
+  codSection: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: ORDER_THEME.surface,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: ORDER_THEME.infoSoft
   },
-  codHeader: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
+  codHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
   },
-  codTitle: { 
-    fontSize: 15, 
-    fontWeight: 'bold', 
-    color: '#2C3E50' 
+  codTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#2C3E50'
   },
-  codAmount: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingVertical: 4 
+  codAmount: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4
   },
-  codLabel: { 
-    fontSize: 14, 
-    color: '#7F8C8D' 
+  codLabel: {
+    fontSize: 14,
+    color: '#7F8C8D'
   },
-  codValue: { 
-    fontSize: 22, 
-    fontWeight: 'bold', 
-    color: '#2ECC71' 
+  codValue: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#2ECC71'
   },
-  confirmButton: { 
-    backgroundColor: ORDER_THEME.success, 
-    borderRadius: 12, 
-    paddingVertical: 14, 
-    alignItems: 'center' 
+  confirmButton: {
+    backgroundColor: ORDER_THEME.success,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center'
   },
-  confirmButtonText: { 
-    fontSize: 15, 
-    fontWeight: 'bold', 
-    color: '#FFFFFF' 
+  confirmButtonText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#FFFFFF'
   },
-  rateBtn: { 
-    flexDirection: 'row', 
-    gap: 8, 
-    marginHorizontal: 16, 
-    marginBottom: 20, 
-    backgroundColor: '#FFB84D', 
-    borderRadius: 14, 
-    paddingVertical: 16, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  rateBtn: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: '#FFB84D',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  rateBtnText: { 
-    color: '#FFFFFF', 
-    fontWeight: 'bold', 
-    fontSize: 15 
+  rateBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15
   },
-  riderSection: { 
-    paddingHorizontal: 16, 
-    marginBottom: 20 
+  riderSection: {
+    paddingHorizontal: 16,
+    marginBottom: 20
   },
-  riderCard: { 
+  riderCard: {
     backgroundColor: ORDER_THEME.surface,
     borderRadius: 16,
     padding: 14,
@@ -1062,42 +1135,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     borderWidth: 1,
-    borderColor: ORDER_THEME.borderSoft 
+    borderColor: ORDER_THEME.borderSoft
   },
-  riderAvatar: { 
-    width: 46, 
-    height: 46, 
-    borderRadius: 23, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  riderAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  riderAvatarText: { 
-    color: '#FFFFFF', 
-    fontSize: 15, 
-    fontWeight: 'bold' 
+  riderAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold'
   },
-  riderInfo: { 
-    flex: 1 
+  riderInfo: {
+    flex: 1
   },
-  riderName: { 
-    fontSize: 15, 
-    fontWeight: 'bold', 
-    color: ORDER_THEME.textPrimary 
+  riderName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: ORDER_THEME.textPrimary
   },
-  riderTrust: { 
-    fontSize: 12, 
-    color: ORDER_THEME.textSecondary, 
-    marginTop: 2 
+  riderTrust: {
+    fontSize: 12,
+    color: ORDER_THEME.textSecondary,
+    marginTop: 2
   },
-  messageButton: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 20, 
-    backgroundColor: '#FFF3EB', 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  messageButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF3EB',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  spacer: { 
-    height: 40 
+  spacer: {
+    height: 40
   },
 });
+

@@ -98,12 +98,30 @@ export default function QRScannerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  overlay: { flex: 1, justifyContent: 'space-between', padding: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 10 },
+  overlay: { 
+    flex: 1, 
+    justifyContent: 'space-between', 
+    padding: 20,
+    alignItems: 'center'
+  },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 16, 
+    marginTop: 10,
+    width: '100%',
+    alignSelf: 'flex-start'
+  },
   closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
-  scanAreaContainer: { alignItems: 'center', justifyContent: 'center', marginBottom: 60 },
+  
+  scanAreaContainer: { 
+    flex: 1,
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    width: '100%'
+  },
   scanBox: { width: 240, height: 240, borderWidth: 2, borderColor: '#FF7A30', borderRadius: 20, backgroundColor: 'transparent' },
-  scanHint: { color: '#FFFFFF', marginTop: 16, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  scanHint: { color: '#FFFFFF', marginTop: 16, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, textAlign: 'center' },
   backBtnText: { padding: 10, backgroundColor: '#FFF3EB', borderRadius: 8 }
 });
