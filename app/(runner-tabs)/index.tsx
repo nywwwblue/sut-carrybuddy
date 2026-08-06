@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -26,7 +26,7 @@ export default function RunnerHomeScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // เพิ่มสเตตัสควบคุม Pop-up บอร์ด Live ด่วน
+  // สเตตัสควบคุม Pop-up บอร์ด Live ด่วน
   const [liveModalVisible, setLiveModalVisible] = useState(false);
   const [activePostId, setActivePostId] = useState<number | null>(null);
   const [incomingOrders, setIncomingOrders] = useState<IncomingOrder[]>([]);
@@ -45,7 +45,7 @@ export default function RunnerHomeScreen() {
         custom_dropoff_label
       `)
       .eq('post_id', postId)
-      .in('status', ['accepted', 'delivering']);
+      .in('status', ['accepted', 'delivering', 'pending']); // เพิ่ม pending เพื่อรองรับออเดอร์ใหม่ที่เข้ามา
 
     if (!error && data) {
       const rows = data as any[];
@@ -74,7 +74,6 @@ export default function RunnerHomeScreen() {
 
     if (data) {
       setActivePostId(data.post_id);
-      // คำนวณเวลาเบื้องต้น
       const diff = +new Date(data.expires_at) - +new Date();
       if (diff > 0) {
         const mins = Math.floor((diff / 1000 / 60) % 60);
@@ -96,7 +95,6 @@ export default function RunnerHomeScreen() {
     }
     const uid = userData.user.id;
 
-    // เช็คเซสชันบอร์ดด่วนของตัวเอง
     await checkActiveFlashSession(uid);
 
     const [walletRes, ordersRes] = await Promise.all([
@@ -157,15 +155,23 @@ export default function RunnerHomeScreen() {
     }, [loadData])
   );
 
-  // ดักฟัง Realtime ดึงออเดอร์ใหม่เมื่อมีคนกดฝากซื้อด่วนพ่วงเข้ามา
+  // ดักฟัง Realtime พร้อมจัดการ Cleanup Channel ป้องกัน Error Subscribe ซ้ำ
   useEffect(() => {
     if (!activePostId) return;
 
+    // สุ่ม Unique Channel Name เพื่อป้องกัน Instance ชนกันเมื่อย้อนกลับหน้า
+    const channelName = `runner-live-orders-${activePostId}-${Date.now()}`;
+
     const channel = supabase
-      .channel(`runner-live-orders-${activePostId}`)
+      .channel(channelName)
       .on(
         'postgres_changes', 
-        { event: '*', schema: 'public', table: 'orders', filter: `post_id=eq.${activePostId}` }, 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'orders', 
+          filter: `post_id=eq.${activePostId}` 
+        }, 
         () => {
           loadLiveIncomingOrders(activePostId);
         }
@@ -173,10 +179,12 @@ export default function RunnerHomeScreen() {
       .subscribe();
 
     return () => {
+      // ลบ Channel ออกจาก Realtime client เสมอเมื่อ Unmount
       supabase.removeChannel(channel);
     };
   }, [activePostId, loadLiveIncomingOrders]);
 
+  // เปลี่ยนสถานะเป็น 'accepted' แทน 'delivering' เมื่อกดรับ Bundle
   const handleAcceptBundle = async () => {
     if (incomingOrders.length === 0) return;
     const orderIds = incomingOrders.map(o => o.id);
@@ -184,7 +192,7 @@ export default function RunnerHomeScreen() {
 
     const { error } = await supabase
       .from('orders')
-      .update({ status: 'delivering' })
+      .update({ status: 'accepted' }) // แก้ไขจาก 'delivering' เป็น 'accepted'
       .in('id', orderIds);
 
     if (!error) {
@@ -193,6 +201,8 @@ export default function RunnerHomeScreen() {
         pathname: '/shopping-list' as any,
         params: { orderIds: JSON.stringify(orderIds), totalFee: totalBundleFee }
       });
+    } else {
+      Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถตอบรับออเดอร์ได้');
     }
   };
 
@@ -226,7 +236,7 @@ export default function RunnerHomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/*ปุ่มแจ้งเตือนด่วนแถบสีส้มลอยเมื่อบอร์ดด่วนออนไลน์อยู่ */}
+        {/* แถบสีส้มลอยเมื่อบอร์ดด่วนออนไลน์อยู่ */}
         {activePostId && (
           <TouchableOpacity 
             style={styles.flashOnlineBadge}
@@ -299,7 +309,7 @@ export default function RunnerHomeScreen() {
             style={styles.actionCard} 
             onPress={() => router.push('/shopping-list' as any)}
           >
-              <Ionicons name="basket-outline" size={22} color="#FF7A30" />
+            <Ionicons name="basket-outline" size={22} color="#FF7A30" />
             <Text style={styles.actionCardText}>ดูใบงานรวม{'\n'}(Shopping List)</Text>
           </TouchableOpacity>
         </View>
@@ -333,7 +343,7 @@ export default function RunnerHomeScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/*แปะหน้าต่างโมดอลป๊อปอัปสถานะสดไว้ล่างสุดของสกรีน */}
+      {/* หน้าต่างโมดอลป๊อปอัปสถานะสด */}
       <FlashLiveModal
         visible={liveModalVisible}
         timeLeft={timeLeft}
@@ -346,7 +356,6 @@ export default function RunnerHomeScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: { 

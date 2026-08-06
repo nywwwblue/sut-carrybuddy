@@ -19,7 +19,7 @@ export default function FlashLiveScreen() {
 
   const [incomingOrders, setIncomingOrders] = useState<IncomingOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeLeft, setTimeLeft] = useState('05:00');
+  const [timeLeft, setTimeLeft] = useState('00:00');
 
   // ดึงข้อมูลออเดอร์สดจากฐานข้อมูล
   const loadIncomingOrders = useCallback(async () => {
@@ -48,33 +48,60 @@ export default function FlashLiveScreen() {
     setLoading(false);
   }, [flashPostId, routePass]);
 
-  // ระบบนับถอยหลัง 5 นาที (300 วินาที)
-  useEffect(() => {
-    let secondsLeft = 300;
-    const timer = setInterval(() => {
-      secondsLeft -= 1;
-      if (secondsLeft <= 0) {
-        clearInterval(timer);
-        setTimeLeft('00:00');
-        handleExpireSession();
-      } else {
-        const mins = Math.floor(secondsLeft / 60);
-        const secs = secondsLeft % 60;
-        setTimeLeft(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const handleExpireSession = async () => {
+  // ฟังก์ชันปิดเซสชันเมื่อหมดเวลา
+  const handleExpireSession = useCallback(async () => {
     if (!flashPostId) return;
     await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
     await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
     
-    Alert.alert('หมดเวลา Flash Buy', 'ครบกำหนด 5 นาทีแล้ว ระบบปิดรับออเดอร์ด่วนอัตโนมัติครับ');
+    Alert.alert('หมดเวลา Flash Buy', 'ครบกำหนดเวลาแล้ว ระบบปิดรับออเดอร์ด่วนอัตโนมัติ');
     router.replace('/runner/runner-home');
-  };
+  }, [flashPostId, router]);
+
+  // ระบบคำนวณเวลาถอยหลังจริงจาก DB (expires_at)
+  useEffect(() => {
+    if (!flashPostId) return;
+
+    let timer: ReturnType<typeof setInterval>;
+
+    const fetchAndStartTimer = async () => {
+      const { data, error } = await supabase
+        .from('flash_buy_sessions')
+        .select('expires_at')
+        .eq('post_id', flashPostId)
+        .single();
+
+      if (error || !data?.expires_at) return;
+
+      const expireTime = new Date(data.expires_at).getTime();
+
+      const updateTimer = () => {
+        const now = new Date().getTime();
+        const diffInSeconds = Math.floor((expireTime - now) / 1000);
+
+        if (diffInSeconds <= 0) {
+          setTimeLeft('00:00');
+          if (timer) clearInterval(timer);
+          handleExpireSession();
+        } else {
+          const mins = Math.floor(diffInSeconds / 60);
+          const secs = diffInSeconds % 60;
+          setTimeLeft(
+            `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+          );
+        }
+      };
+
+      updateTimer();
+      timer = setInterval(updateTimer, 1000);
+    };
+
+    fetchAndStartTimer();
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [flashPostId, handleExpireSession]);
 
   useEffect(() => {
     if (!flashPostId) return;
@@ -94,7 +121,7 @@ export default function FlashLiveScreen() {
   const handleAcceptBundle = async () => {
     if (incomingOrders.length === 0) return;
     const orderIds = incomingOrders.map(o => o.id);
-    const { error } = await supabase.from('orders').update({ status: 'delivering' }).in('id', orderIds);
+    const { error } = await supabase.from('orders').update({ status: 'accepted' }).in('id', orderIds);
 
     if (!error) {
       router.push({
@@ -132,7 +159,7 @@ export default function FlashLiveScreen() {
         <View style={styles.timerCard}>
           <Text style={styles.timerStatusText}>เวลาคงเหลือ</Text>
           <Text style={styles.timerDigits}>{timeLeft}</Text>
-          <Text style={styles.timerNote}>บอร์ดจะปิดอัตโนมัติเมื่อครบ 5 นาที</Text>
+          <Text style={styles.timerNote}>บอร์ดจะปิดอัตโนมัติเมื่อครบกำหนดเวลา</Text>
         </View>
 
         <Text style={styles.sectionTitle}>ออเดอร์ด่วนที่เข้ามา ({incomingOrders.length})</Text>
