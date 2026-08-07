@@ -3,11 +3,11 @@ import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Act
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
+import * as Location from 'expo-location'; // 👈 เพิ่ม Import expo-location
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ORDER_THEME } from '@/constants/OrderTheme';
 import { StatusPill } from '@/components/StatusPill';
-
 
 // ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -17,22 +17,18 @@ function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: num
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
   const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-
   const a =
     Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-
   return R * c;
 }
-
 
 function calculateETA(distanceMeters: number) {
   const estimatedRoadDistance = distanceMeters * 1.35;
   const SPEED_METERS_PER_MIN = 416; // 25 กม./ชม.
   const minutes = Math.ceil(estimatedRoadDistance / SPEED_METERS_PER_MIN);
-
 
   let distanceText = '';
   if (estimatedRoadDistance >= 1000) {
@@ -41,10 +37,8 @@ function calculateETA(distanceMeters: number) {
     distanceText = `${Math.round(estimatedRoadDistance)} เมตร`;
   }
 
-
   return { distanceText, minutes: minutes < 1 ? 1 : minutes };
 }
-
 
 function formatDisplayDate(value?: string | null) {
   if (!value) return 'ไม่ทราบวันที่';
@@ -61,16 +55,30 @@ function formatDisplayDate(value?: string | null) {
   }
 }
 
-
 // 📡 คอมโพเนนต์ LiveTrackingCard สำหรับคนฝากหิ้ว
 function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number | string; dropoffLat: number; dropoffLng: number }) {
   const [etaInfo, setEtaInfo] = useState<{ distanceText: string; minutes: number } | null>(null);
 
-
   useEffect(() => {
     if (!orderId || !dropoffLat || !dropoffLng) return;
 
+    // 📍 1. ดึงพิกัดล่าสุดที่มีอยู่ใน Supabase ออกมาแสดงผลทันที ไม่ต้องรอขยับ
+    const fetchInitialLocation = async () => {
+      const { data } = await supabase
+        .from('runner_locations')
+        .select('lat, lng')
+        .eq('order_id', orderId)
+        .single();
 
+      if (data?.lat && data?.lng) {
+        const meters = getDistanceInMeters(Number(data.lat), Number(data.lng), dropoffLat, dropoffLng);
+        setEtaInfo(calculateETA(meters));
+      }
+    };
+
+    fetchInitialLocation();
+
+    // 📡 2. ดักฟังการอัปเดตแบบ Realtime สด
     const channel = supabase
       .channel(`runner-location-${orderId}`)
       .on(
@@ -84,20 +92,17 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
         (payload) => {
           const newLoc = payload.new as { lat: number; lng: number };
           if (newLoc?.lat && newLoc?.lng) {
-            const meters = getDistanceInMeters(newLoc.lat, newLoc.lng, dropoffLat, dropoffLng);
-            const eta = calculateETA(meters);
-            setEtaInfo(eta);
+            const meters = getDistanceInMeters(Number(newLoc.lat), Number(newLoc.lng), dropoffLat, dropoffLng);
+            setEtaInfo(calculateETA(meters));
           }
         }
       )
       .subscribe();
 
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, [orderId, dropoffLat, dropoffLng]);
-
 
   if (!etaInfo) {
     return (
@@ -107,7 +112,6 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
       </View>
     );
   }
-
 
   return (
     <View style={trackingStyles.card}>
@@ -119,7 +123,6 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
         <Text style={trackingStyles.distanceText}>ห่างจากคุณ {etaInfo.distanceText}</Text>
       </View>
 
-
       <View style={trackingStyles.etaContainer}>
         <Ionicons name="time" size={26} color="#FF7A30" />
         <View>
@@ -130,7 +133,6 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
     </View>
   );
 }
-
 
 const STEP_ORDER = ['pending', 'accepted', 'buying', 'bought', 'delivering', 'completed'];
 const STEP_LABELS: Record<string, string> = {
@@ -149,12 +151,10 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   delivering: ['completed'],
 };
 
-
 function canTransitionTo(currentStatus: string, nextStatus: string) {
   if (!currentStatus || currentStatus === 'completed' || currentStatus === 'cancelled') return false;
   return (ALLOWED_TRANSITIONS[currentStatus] || []).includes(nextStatus);
 }
-
 
 interface OrderDetail {
   id: number;
@@ -175,20 +175,17 @@ interface OrderDetail {
   dropoffLng: number | null;
 }
 
-
 export default function OrderDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const orderId = params.orderId as string | undefined;
-  const viewMode = params.mode as string | undefined; // รองรับการส่ง mode='runner' หรือ 'requester'
-
+  const viewMode = params.mode as string | undefined;
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
@@ -198,21 +195,18 @@ export default function OrderDetailScreen() {
       return;
     }
 
-
     setLoading(true);
     setLoadError(null);
-
 
     try {
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id ?? null;
       setMyUserId(uid);
 
-
       const { data, error } = await supabase
         .from('orders')
         .select(
-          `id, status, payment_mode, item_total, fee, requester_id, runner_id,
+          `id, status, payment_mode, item_total, fee, requester_id, runner_id, created_at,
            custom_store_lat, custom_store_lng, custom_store_label,
            custom_dropoff_lat, custom_dropoff_lng, custom_dropoff_label,
            order_items ( item_name, quantity ),
@@ -222,21 +216,17 @@ export default function OrderDetailScreen() {
         .eq('id', orderId)
         .single();
 
-
       if (error) throw error;
       if (!data) throw new Error('ไม่พบออเดอร์นี้');
-
 
       const row = data as any;
       const reqId = row.requester_id ? String(row.requester_id).trim() : '';
       const runId = row.runner_id ? String(row.runner_id).trim() : null;
 
-
       const isRunnerUser = uid && runId && String(uid).trim() === runId;
       const otherUserId = isRunnerUser ? reqId : runId;
       let otherName = 'ไม่ทราบชื่อ';
       let otherTrust = 100;
-
 
       if (otherUserId) {
         const { data: otherUser } = await supabase
@@ -250,16 +240,13 @@ export default function OrderDetailScreen() {
         }
       }
 
-
       const storeLat = row.store?.lat ? Number(row.store.lat) : row.custom_store_lat ? Number(row.custom_store_lat) : null;
       const storeLng = row.store?.lng ? Number(row.store.lng) : row.custom_store_lng ? Number(row.custom_store_lng) : null;
       const storeLabel = row.store?.name || row.custom_store_label || 'ร้านค้า';
 
-
       const dropoffLat = row.dropoff?.lat ? Number(row.dropoff.lat) : row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
       const dropoffLng = row.dropoff?.lng ? Number(row.dropoff.lng) : row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
       const dropoffLabel = row.dropoff?.name || row.custom_dropoff_label || 'จุดส่งของ';
-
 
       setOrder({
         id: row.id,
@@ -278,7 +265,8 @@ export default function OrderDetailScreen() {
         storeLabel,
         dropoffLat,
         dropoffLng,
-      });
+        created_at: row.created_at,
+      } as any);
     } catch (error: any) {
       console.log('loadOrder error', error);
       setLoadError(error.message || 'ไม่สามารถโหลดข้อมูลออเดอร์ได้');
@@ -288,34 +276,66 @@ export default function OrderDetailScreen() {
     }
   }, [orderId]);
 
-
   useFocusEffect(
     useCallback(() => {
       loadOrder();
     }, [loadOrder])
   );
 
-
-  // 🔑 ปรับแก้เงื่อนไขสิทธิ์ให้ทำงานถูกต้องแม้อยู่ในขั้นตอนทดสอบ:
   const uidStr = myUserId ? String(myUserId).trim() : '';
   const reqIdStr = order?.requester_id ? String(order.requester_id).trim() : '';
   const runIdStr = order?.runner_id ? String(order.runner_id).trim() : '';
 
-
-  // ถ้าส่ง mode='runner' มา บังคับให้เป็น Runner ทันที หรือถ้าไอดีตรงกับ runner_id และไม่ตรงกับ requester_id
   const isRunner = viewMode === 'runner' || (Boolean(uidStr && runIdStr && uidStr === runIdStr) && uidStr !== reqIdStr);
   const isRequester = !isRunner;
 
+  // 🛵 3. ระบบส่ง GPS สดอัตโนมัติฝั่ง Runner (ทำงานเมื่อ status === 'delivering')
+  useEffect(() => {
+    if (!isRunner || order?.status !== 'delivering' || !order?.id) return;
+
+    let sub: Location.LocationSubscription | null = null;
+
+    const startLocationUpdates = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('ต้องการสิทธิ์พิกัด', 'กรุณายินยอมให้เข้าถึง GPS เพื่อส่งพิกัดการนำส่ง');
+        return;
+      }
+
+      sub = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 4000, // อัปเดตทุก 4 วินาที
+          distanceInterval: 5,  // ขยับทุก 5 เมตร
+        },
+        async (loc) => {
+          await supabase.from('runner_locations').upsert(
+            {
+              order_id: Number(order.id),
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'order_id' }
+          );
+        }
+      );
+    };
+
+    startLocationUpdates();
+
+    return () => {
+      if (sub) sub.remove();
+    };
+  }, [isRunner, order?.status, order?.id]);
 
   const currentStepIndex = order ? STEP_ORDER.indexOf(order.status) : -1;
-
 
   const openNavigation = (lat: number | null, lng: number | null, label: string | null) => {
     if (!lat || !lng) {
       Alert.alert('ไม่พบพิกัด', 'สถานที่นี้ไม่ได้ระบุพิกัดบนแผนที่ไว้');
       return;
     }
-
 
     const encodedLabel = encodeURIComponent(label || 'จุดหมาย');
     const scheme = Platform.OS === 'ios' ? 'maps:' : 'geo:';
@@ -324,9 +344,7 @@ export default function OrderDetailScreen() {
       android: `google.navigation:q=${lat},${lng}`,
     });
 
-
     const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
 
     Linking.canOpenURL(url!)
       .then((supported) => {
@@ -341,19 +359,15 @@ export default function OrderDetailScreen() {
       });
   };
 
-
   const updateStatus = async (newStatus: string) => {
     if (!order || updating) return;
-
 
     if (!canTransitionTo(order.status, newStatus)) {
       Alert.alert('สถานะไม่ถูกต้อง', 'ไม่สามารถอัปเดตสถานะนี้จากสถานะปัจจุบันได้');
       return;
     }
 
-
     setUpdating(true);
-
 
     try {
       if (newStatus === 'completed' && order.payment_mode === 'wallet') {
@@ -365,9 +379,7 @@ export default function OrderDetailScreen() {
           .update({ status: newStatus })
           .eq('id', order.id);
 
-
         if (updateError) throw updateError;
-
 
         const { error: logError } = await supabase.from('order_status_logs').insert({
           order_id: order.id,
@@ -376,10 +388,8 @@ export default function OrderDetailScreen() {
           note: `เปลี่ยนสถานะเป็น ${STEP_LABELS[newStatus] || newStatus}`,
         });
 
-
         if (logError) throw logError;
       }
-
 
       await loadOrder();
     } catch (error: any) {
@@ -389,11 +399,9 @@ export default function OrderDetailScreen() {
     }
   };
 
-
   const handleConfirmCOD = async () => {
     if (!order || updating) return;
     setUpdating(true);
-
 
     try {
       const { error: rpcError } = await supabase.rpc('settle_cod_order', {
@@ -401,9 +409,7 @@ export default function OrderDetailScreen() {
         p_changed_by: myUserId,
       });
 
-
       if (rpcError) throw rpcError;
-
 
       Alert.alert('สำเร็จ', 'ยืนยันรับเงินและจบงานเรียบร้อยแล้ว');
       router.replace('/(runner-tabs)');
@@ -413,7 +419,6 @@ export default function OrderDetailScreen() {
       setUpdating(false);
     }
   };
-
 
   const handleCancelOrder = async () => {
     if (!order || updating) return;
@@ -428,7 +433,6 @@ export default function OrderDetailScreen() {
             const { error: updateError } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
             if (updateError) throw updateError;
 
-
             const { error: logError } = await supabase.from('order_status_logs').insert({
               order_id: order.id,
               changed_by: myUserId,
@@ -436,7 +440,6 @@ export default function OrderDetailScreen() {
               note: 'ผู้ใช้ยกเลิกออเดอร์',
             });
             if (logError) throw logError;
-
 
             Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์เรียบร้อยแล้ว');
             router.back();
@@ -450,7 +453,6 @@ export default function OrderDetailScreen() {
     ]);
   };
 
-
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, styles.centerContent]}>
@@ -458,7 +460,6 @@ export default function OrderDetailScreen() {
       </SafeAreaView>
     );
   }
-
 
   if (!order) {
     return (
@@ -472,12 +473,10 @@ export default function OrderDetailScreen() {
     );
   }
 
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <ScreenHeader title="อัปเดตสถานะ" subtitle={`Order #${order.id}`} />
-
 
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
@@ -487,7 +486,6 @@ export default function OrderDetailScreen() {
             </View>
             <StatusPill status={order.status} />
           </View>
-
 
           <View style={styles.heroMetaRow}>
             <View style={styles.heroMetaBox}>
@@ -504,7 +502,6 @@ export default function OrderDetailScreen() {
             </View>
           </View>
         </View>
-
 
         {/* Timeline */}
         <View style={styles.timeline}>
@@ -529,7 +526,6 @@ export default function OrderDetailScreen() {
           })}
         </View>
 
-
         {/* 📡 1. มุมมองฝั่งคนฝากหิ้ว (REQUESTER) */}
         {isRequester && (
           <View style={{ marginVertical: 4 }}>
@@ -542,14 +538,12 @@ export default function OrderDetailScreen() {
               />
             )}
 
-
             {/* ปุ่มยกเลิกออเดอร์ */}
             {order.status === 'pending' && (
               <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={updating}>
                 <Text style={styles.cancelBtnText}>ยกเลิกออเดอร์นี้</Text>
               </TouchableOpacity>
             )}
-
 
             {/* ปุ่มให้คะแนนผู้รับหิ้ว */}
             {order.status === 'completed' && (
@@ -560,7 +554,6 @@ export default function OrderDetailScreen() {
             )}
           </View>
         )}
-
 
         {/* มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
         {isRunner && (
@@ -578,7 +571,6 @@ export default function OrderDetailScreen() {
                     <Text style={styles.navBtnText}>ไปร้านค้า</Text>
                   </TouchableOpacity>
 
-
                   <TouchableOpacity
                     style={[styles.navBtn, { backgroundColor: '#2ECC71' }]}
                     onPress={() => openNavigation(order.dropoffLat, order.dropoffLng, order.dropoffLabel)}
@@ -589,7 +581,6 @@ export default function OrderDetailScreen() {
                 </View>
               </View>
             )}
-
 
             {/* ปุ่มชำระเงิน COD */}
             {order.payment_mode === 'cod' && order.status === 'delivering' && (
@@ -609,7 +600,6 @@ export default function OrderDetailScreen() {
             )}
           </View>
         )}
-
 
         {/* Items */}
         <View style={styles.itemsCard}>
@@ -636,14 +626,12 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-
-        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner (อัปเดตให้แสดงผลถูกต้องหลังรวมโค้ด) */}
+        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner */}
         {isRunner && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
           <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
             {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
           </TouchableOpacity>
         )}
-
 
         {/* QR Code (Wallet mode) */}
         {order.payment_mode === 'wallet' && (
@@ -672,7 +660,6 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-
         {/* Other party Info */}
         <View style={styles.riderSection}>
           <View style={styles.riderCard}>
@@ -692,7 +679,6 @@ export default function OrderDetailScreen() {
                   return;
                 }
 
-
                 const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
                   other_user_id: otherPartyId,
                 });
@@ -708,13 +694,11 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-
         <View style={styles.spacer} />
       </ScrollView>
     </SafeAreaView>
   );
 }
-
 
 const trackingStyles = StyleSheet.create({
   card: {
@@ -742,7 +726,6 @@ const trackingStyles = StyleSheet.create({
   etaTitle: { fontSize: 12, color: '#8B7E74' },
   etaValue: { fontSize: 16, fontWeight: 'bold', color: '#FF7A30' },
 });
-
 
 const styles = StyleSheet.create({
   container: {
@@ -1054,7 +1037,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF7A30',
     borderRadius: 14,
     paddingVertical: 16,
-    alignItems: 'center'
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   regenerateButtonText: {
     fontSize: 16,
@@ -1174,4 +1160,3 @@ const styles = StyleSheet.create({
     height: 40
   },
 });
-
