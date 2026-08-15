@@ -1,15 +1,31 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, Platform } from 'react-native';
+import { 
+  StyleSheet, 
+  Text, 
+  View, 
+  SafeAreaView, 
+  TouchableOpacity, 
+  ScrollView, 
+  ActivityIndicator, 
+  Alert, 
+  Linking, 
+  Platform,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Image
+} from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
-import * as Location from 'expo-location'; // 👈 เพิ่ม Import expo-location
+import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ORDER_THEME } from '@/constants/OrderTheme';
 import { StatusPill } from '@/components/StatusPill';
 
-// ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
+// 📐 ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
@@ -62,7 +78,6 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
   useEffect(() => {
     if (!orderId || !dropoffLat || !dropoffLng) return;
 
-    // 📍 1. ดึงพิกัดล่าสุดที่มีอยู่ใน Supabase ออกมาแสดงผลทันที ไม่ต้องรอขยับ
     const fetchInitialLocation = async () => {
       const { data } = await supabase
         .from('runner_locations')
@@ -78,7 +93,6 @@ function LiveTrackingCard({ orderId, dropoffLat, dropoffLng }: { orderId: number
 
     fetchInitialLocation();
 
-    // 📡 2. ดักฟังการอัปเดตแบบ Realtime สด
     const channel = supabase
       .channel(`runner-location-${orderId}`)
       .on(
@@ -142,7 +156,10 @@ const STEP_LABELS: Record<string, string> = {
   bought: 'ซื้อแล้ว รอนำส่ง',
   delivering: 'กำลังเดินทาง',
   completed: 'จัดส่งสำเร็จ',
+  disputed: 'อยู่ระหว่างตรวจสอบข้อพิพาท',
+  cancelled: 'ยกเลิกออเดอร์แล้ว',
 };
+
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   pending: ['accepted'],
   accepted: ['buying'],
@@ -152,8 +169,37 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 };
 
 function canTransitionTo(currentStatus: string, nextStatus: string) {
-  if (!currentStatus || currentStatus === 'completed' || currentStatus === 'cancelled') return false;
+  if (!currentStatus || currentStatus === 'completed' || currentStatus === 'cancelled' || currentStatus === 'disputed') return false;
   return (ALLOWED_TRANSITIONS[currentStatus] || []).includes(nextStatus);
+}
+
+// 📑 หัวข้อข้อพิพาทสำหรับฝั่งไรเดอร์
+const RUNNER_DISPUTE_REASONS = [
+  'ลูกค้าปฏิเสธการรับสินค้า / ตีกลับออเดอร์',
+  'ลูกค้าไม่ชำระเงิน (กรณีเก็บเงินปลายทาง - COD)',
+  'ไม่สามารถติดต่อลูกค้าได้ ณ จุดส่งของ',
+  'สินค้าชำรุดเสียหายจากทางร้านค้า',
+  'สินค้าที่สั่งหมด / ร้านค้าปิด / หาของไม่ได้',
+  'เกิดอุบัติเหตุ / เหตุสุดวิสัยระหว่างนำส่ง',
+  'อื่นๆ (ระบุรายละเอียดเพิ่มเติม)',
+];
+
+// 📑 หัวข้อข้อพิพาทสำหรับฝั่งคนฝากหิ้ว (ลูกค้า)
+const REQUESTER_DISPUTE_REASONS = [
+  'ไม่ได้รับสินค้า / ไรเดอร์ไม่มาส่งตามเวลา',
+  'สินค้าแตกหัก / เสียหายจากการขนส่ง (ขอเคลม)',
+  'สินค้าไม่ถูกต้อง / ได้รับของไม่ครบตามรายการ',
+  'สินค้าหมดอายุ / เสื่อมสภาพ / มีปัญหาจากร้านค้า',
+  'ไรเดอร์เรียกเก็บเงินเกินจำนวนจริง',
+  'พฤติกรรมไรเดอร์ไม่เหมาะสม / ไม่สุภาพ',
+  'อื่นๆ (ระบุรายละเอียดเพิ่มเติม)',
+];
+
+interface ProofItem {
+  id: number;
+  image_url: string;
+  verify_status?: string;
+  uploaded_at: string;
 }
 
 interface OrderDetail {
@@ -173,6 +219,7 @@ interface OrderDetail {
   storeLabel: string | null;
   dropoffLat: number | null;
   dropoffLng: number | null;
+  created_at?: string;
 }
 
 export default function OrderDetailScreen() {
@@ -186,6 +233,35 @@ export default function OrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // 📸 State สำหรับรูปภาพหลักฐาน
+  const [proofs, setProofs] = useState<ProofItem[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+
+  // 📝 State สำหรับ Modal รายงานปัญหา / ข้อพิพาท
+  const [disputeModalVisible, setDisputeModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string>('');
+  const [disputeDetail, setDisputeDetail] = useState('');
+  const [submittingDispute, setSubmittingDispute] = useState(false);
+
+  const loadProofs = useCallback(async () => {
+    if (!orderId) return;
+    const { data, error } = await supabase
+      .from('proof_of_purchases')
+      .select('id, image_url, verify_status, uploaded_at')
+      .eq('order_id', Number(orderId))
+      .order('uploaded_at', { ascending: false });
+
+    if (error) {
+      console.log('loadProofs error:', error.message);
+      return;
+    }
+
+    if (data) {
+      setProofs(data as ProofItem[]);
+    }
+  }, [orderId]);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
@@ -267,6 +343,8 @@ export default function OrderDetailScreen() {
         dropoffLng,
         created_at: row.created_at,
       } as any);
+
+      await loadProofs();
     } catch (error: any) {
       console.log('loadOrder error', error);
       setLoadError(error.message || 'ไม่สามารถโหลดข้อมูลออเดอร์ได้');
@@ -274,7 +352,7 @@ export default function OrderDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, loadProofs]);
 
   useFocusEffect(
     useCallback(() => {
@@ -289,7 +367,7 @@ export default function OrderDetailScreen() {
   const isRunner = viewMode === 'runner' || (Boolean(uidStr && runIdStr && uidStr === runIdStr) && uidStr !== reqIdStr);
   const isRequester = !isRunner;
 
-  // 🛵 3. ระบบส่ง GPS สดอัตโนมัติฝั่ง Runner (ทำงานเมื่อ status === 'delivering')
+  // 🛵 ระบบส่ง GPS สดอัตโนมัติฝั่ง Runner
   useEffect(() => {
     if (!isRunner || order?.status !== 'delivering' || !order?.id) return;
 
@@ -297,16 +375,13 @@ export default function OrderDetailScreen() {
 
     const startLocationUpdates = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('ต้องการสิทธิ์พิกัด', 'กรุณายินยอมให้เข้าถึง GPS เพื่อส่งพิกัดการนำส่ง');
-        return;
-      }
+      if (status !== 'granted') return;
 
       sub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          timeInterval: 4000, // อัปเดตทุก 4 วินาที
-          distanceInterval: 5,  // ขยับทุก 5 เมตร
+          timeInterval: 4000,
+          distanceInterval: 5,
         },
         async (loc) => {
           await supabase.from('runner_locations').upsert(
@@ -328,6 +403,96 @@ export default function OrderDetailScreen() {
       if (sub) sub.remove();
     };
   }, [isRunner, order?.status, order?.id]);
+
+  // 📸 ฟังก์ชันถ่ายรูป / อัปโหลดหลักฐานส่งของ
+  const handlePickAndUploadProof = async () => {
+    if (!order) return;
+
+    Alert.alert('หลักฐานการจัดส่งสินค้า', 'เลือกวิธีการอัปโหลดภาพ', [
+      {
+        text: 'ถ่ายภาพด้วยกล้อง',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('ต้องขออนุญาต', 'กรุณายินยอมให้เข้าถึงกล้องถ่ายภาพ');
+            return;
+          }
+          const res = await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            quality: 0.5,
+          });
+          if (!res.canceled && res.assets[0]?.uri) {
+            uploadProofImage(res.assets[0].uri);
+          }
+        },
+      },
+      {
+        text: 'เลือกจากคลังรูปภาพ',
+        onPress: async () => {
+          const res = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.5,
+          });
+          if (!res.canceled && res.assets[0]?.uri) {
+            uploadProofImage(res.assets[0].uri);
+          }
+        },
+      },
+      { text: 'ยกเลิก', style: 'cancel' },
+    ]);
+  };
+
+  const uploadProofImage = async (uri: string) => {
+    if (!order) return;
+    setUploadingImage(true);
+
+    try {
+      const fileExt = uri.split('.').pop() || 'jpg';
+      const fileName = `proof_${order.id}_${Date.now()}.${fileExt}`;
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri,
+        name: fileName,
+        type: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
+      } as any);
+
+      // 1. อัปโหลดเข้า Supabase Storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('proof_images')
+        .upload(fileName, formData, {
+          upsert: true,
+        });
+
+      if (uploadError) throw new Error(`Storage Error: ${uploadError.message}`);
+
+      // 2. ดึง Public URL ของรูปภาพ
+      const { data: publicUrlData } = supabase.storage
+        .from('proof_images')
+        .getPublicUrl(fileName);
+
+      const finalUrl = publicUrlData.publicUrl;
+
+      // 3. บันทึกลงตาราง proof_of_purchases
+      const { error: insertError } = await supabase
+        .from('proof_of_purchases')
+        .insert({
+          order_id: Number(order.id),
+          image_url: finalUrl,
+          verify_status: 'pending',
+          uploaded_at: new Date().toISOString(),
+        });
+
+      if (insertError) throw new Error(`Database Error: ${insertError.message}`);
+
+      Alert.alert('สำเร็จ', 'บันทึกหลักฐานการจัดส่งเรียบร้อยแล้ว');
+      await loadProofs();
+    } catch (err: any) {
+      Alert.alert('อัปโหลดไม่สำเร็จ', err.message || 'กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const currentStepIndex = order ? STEP_ORDER.indexOf(order.status) : -1;
 
@@ -453,6 +618,51 @@ export default function OrderDetailScreen() {
     ]);
   };
 
+  // 🚨 ส่งข้อมูลคำร้องข้อพิพาทเข้าตาราง dispute_reports
+  const submitDisputeReport = async () => {
+    if (!order || !selectedReason) {
+      Alert.alert('กรุณาเลือกสาเหตุ', 'โปรดเลือกหัวข้อปัญหาที่ท่านพบ');
+      return;
+    }
+
+    setSubmittingDispute(true);
+    const combinedReason = `${selectedReason}: ${disputeDetail.trim() || 'ไม่ได้ระบุรายละเอียดเพิ่มเติม'}`;
+
+    try {
+      const { error: disputeError } = await supabase
+        .from('dispute_reports')
+        .insert({
+          reporter_id: myUserId,
+          target_type: 'order',
+          target_id: Number(order.id),
+          reason: combinedReason,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        });
+
+      if (disputeError) throw disputeError;
+
+      await supabase.from('orders').update({ status: 'disputed' }).eq('id', order.id);
+      await supabase.from('order_status_logs').insert({
+        order_id: order.id,
+        changed_by: myUserId,
+        status: 'disputed',
+        note: `รายงานปัญหา: ${combinedReason}`,
+      });
+
+      setDisputeModalVisible(false);
+      setSelectedReason('');
+      setDisputeDetail('');
+
+      Alert.alert('ส่งรายงานเรียบร้อย', 'ทางระบบได้รับคำร้องแล้ว แอดมินจะดำเนินการตรวจสอบข้อมูลและแจ้งผลให้ทราบครับ');
+      await loadOrder();
+    } catch (error: any) {
+      Alert.alert('ส่งรายงานไม่สำเร็จ', error.message || 'กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setSubmittingDispute(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, styles.centerContent]}>
@@ -472,6 +682,8 @@ export default function OrderDetailScreen() {
       </SafeAreaView>
     );
   }
+
+  const disputeReasons = isRunner ? RUNNER_DISPUTE_REASONS : REQUESTER_DISPUTE_REASONS;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -503,39 +715,63 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+        {/* ⚠️ แถบแจ้งเตือนเมื่อออเดอร์อยู่ในสถานะ Disputed */}
+        {order.status === 'disputed' && (
+          <View style={styles.disputedBanner}>
+            <Ionicons name="alert-circle" size={24} color="#D9534F" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.disputedBannerTitle}>ออเดอร์นี้อยู่ระหว่างตรวจสอบข้อพิพาท</Text>
+              <Text style={styles.disputedBannerText}>ระบบกำลังระงับคำสั่งซื้อชั่วคราวเพื่อให้แอดมินดำเนินการตรวจสอบข้อมูล</Text>
+            </View>
+          </View>
+        )}
+
         {/* Timeline */}
-        <View style={styles.timeline}>
-          {STEP_ORDER.map((step, index) => {
-            const completed = currentStepIndex > index;
-            const current = currentStepIndex === index;
-            return (
-              <View key={step} style={styles.timelineItem}>
-                <View style={[styles.timelineCircle, (completed || current) && styles.timelineCircleCompleted]}>
-                  {completed && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+        {order.status !== 'disputed' && (
+          <View style={styles.timeline}>
+            {STEP_ORDER.map((step, index) => {
+              const completed = currentStepIndex > index;
+              const current = currentStepIndex === index;
+              return (
+                <View key={step} style={styles.timelineItem}>
+                  <View style={[styles.timelineCircle, (completed || current) && styles.timelineCircleCompleted]}>
+                    {completed && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                  </View>
+                  {index < STEP_ORDER.length - 1 && (
+                    <View style={[styles.timelineLine, completed && styles.timelineLineCompleted]} />
+                  )}
+                  <View style={styles.timelineContent}>
+                    <Text style={[styles.timelineLabel, (completed || current) && styles.timelineLabelCompleted]}>
+                      {STEP_LABELS[step]}
+                    </Text>
+                  </View>
                 </View>
-                {index < STEP_ORDER.length - 1 && (
-                  <View style={[styles.timelineLine, completed && styles.timelineLineCompleted]} />
-                )}
-                <View style={styles.timelineContent}>
-                  <Text style={[styles.timelineLabel, (completed || current) && styles.timelineLabelCompleted]}>
-                    {STEP_LABELS[step]}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* 📡 1. มุมมองฝั่งคนฝากหิ้ว (REQUESTER) */}
-        {isRequester && (
+        {isRequester && order.status !== 'disputed' && (
           <View style={{ marginVertical: 4 }}>
-            {/* LIVE TRACKING: แสดงระยะทางสด + เวลาคงเหลือ (เฉพาะตอนกำลังส่ง) */}
+            {/* LIVE TRACKING */}
             {order.status === 'delivering' && (
               <LiveTrackingCard
                 orderId={order.id}
                 dropoffLat={order.dropoffLat ?? 0}
                 dropoffLng={order.dropoffLng ?? 0}
               />
+            )}
+
+            {/* 📸 ปุ่มดูหลักฐานการจัดส่ง (จะขึ้นเมื่อสถานะเป็น completed และมีรูปภาพ) */}
+            {order.status === 'completed' && proofs.length > 0 && (
+              <TouchableOpacity 
+                style={styles.proofFullButton}
+                onPress={() => setViewingImage(proofs[0].image_url)}
+              >
+                <Ionicons name="images" size={18} color="#FFFFFF" />
+                <Text style={styles.proofFullButtonText}>หลักฐานการจัดส่งสินค้า</Text>
+              </TouchableOpacity>
             )}
 
             {/* ปุ่มยกเลิกออเดอร์ */}
@@ -555,8 +791,8 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
-        {isRunner && (
+        {/* 🛵 2. มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
+        {isRunner && order.status !== 'disputed' && (
           <View style={{ marginVertical: 4 }}>
             {/* ศูนย์นำทาง GPS */}
             {order.status !== 'completed' && order.status !== 'cancelled' && (
@@ -579,6 +815,45 @@ export default function OrderDetailScreen() {
                     <Text style={styles.navBtnText}>ไปจุดส่งของ</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            )}
+
+            {/* 📸 ปุ่มเดี่ยว: "หลักฐานการจัดส่งสินค้า" (ขึ้นเฉพาะตอนกำลังเดินทาง) */}
+            {order.status === 'delivering' && (
+              <View style={styles.runnerProofBox}>
+                {proofs.length === 0 ? (
+                  <TouchableOpacity 
+                    style={styles.runnerProofBtn} 
+                    onPress={handlePickAndUploadProof}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? (
+                      <ActivityIndicator size="small" color="#FF7A30" />
+                    ) : (
+                      <>
+                        <Ionicons name="camera" size={18} color="#FF7A30" />
+                        <Text style={styles.runnerProofBtnText}>หลักฐานการจัดส่งสินค้า</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ alignItems: 'center', gap: 10 }}>
+                    <TouchableOpacity onPress={() => setViewingImage(proofs[0].image_url)}>
+                      <Image 
+                        source={{ uri: proofs[0].image_url }} 
+                        style={{ width: 140, height: 140, borderRadius: 14, borderWidth: 1, borderColor: '#FF7A30' }} 
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.runnerProofBtn, { paddingVertical: 8, paddingHorizontal: 16 }]} 
+                      onPress={handlePickAndUploadProof}
+                      disabled={uploadingImage}
+                    >
+                      <Ionicons name="camera-reverse" size={16} color="#FF7A30" />
+                      <Text style={[styles.runnerProofBtnText, { fontSize: 13 }]}>ถ่ายรูปใหม่</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )}
 
@@ -627,14 +902,14 @@ export default function OrderDetailScreen() {
         </View>
 
         {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner */}
-        {isRunner && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
+        {isRunner && order.status !== 'disputed' && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
           <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
             {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
           </TouchableOpacity>
         )}
 
         {/* QR Code (Wallet mode) */}
-        {order.payment_mode === 'wallet' && (
+        {order.payment_mode === 'wallet' && order.status !== 'disputed' && (
           <View style={styles.qrSection}>
             {isRunner ? (
               <View style={styles.qrContainer}>
@@ -694,8 +969,116 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+        {/* 🚨 ปุ่มเดี่ยว "รายงานปัญหา" */}
+        {order.status !== 'disputed' && order.status !== 'cancelled' && (
+          <TouchableOpacity 
+            style={styles.singleReportBtn} 
+            onPress={() => {
+              setSelectedReason('');
+              setDisputeDetail('');
+              setDisputeModalVisible(true);
+            }}
+          >
+            <Ionicons name="warning-outline" size={16} color="#E74C3C" />
+            <Text style={styles.singleReportBtnText}>รายงานปัญหา</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.spacer} />
       </ScrollView>
+
+      {/* 🖼️ Modal แสดงภาพหลักฐานขนาดใหญ่ */}
+      <Modal visible={!!viewingImage} transparent={true} animationType="fade">
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity style={styles.closeImageBtn} onPress={() => setViewingImage(null)}>
+            <Ionicons name="close-circle" size={34} color="#FFFFFF" />
+          </TouchableOpacity>
+          {viewingImage && (
+            <Image source={{ uri: viewingImage }} style={styles.fullImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
+
+      {/* 🛑 Modal รวมหัวข้อการรายงานปัญหา */}
+      <Modal
+        visible={disputeModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setDisputeModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="alert-circle" size={22} color="#E74C3C" />
+                <Text style={styles.modalTitle}>รายงานปัญหาออเดอร์</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDisputeModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#8B7E74" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 360 }}>
+              <Text style={styles.modalSubtitle}>เลือกหัวข้อปัญหาที่พบ:</Text>
+              {disputeReasons.map((reason, index) => {
+                const isSelected = selectedReason === reason;
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.reasonOption, isSelected && styles.reasonOptionSelected]}
+                    onPress={() => setSelectedReason(reason)}
+                  >
+                    <Ionicons 
+                      name={isSelected ? "radio-button-on" : "radio-button-off"} 
+                      size={18} 
+                      color={isSelected ? "#FF7A30" : "#B0A498"} 
+                    />
+                    <Text style={[styles.reasonOptionText, isSelected && styles.reasonOptionTextSelected]}>
+                      {reason}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text style={[styles.modalSubtitle, { marginTop: 14 }]}>รายละเอียดเพิ่มเติม (ถ้ามี):</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="พิมพ์รายละเอียดเพิ่มเติม..."
+                placeholderTextColor="#B0A498"
+                multiline
+                numberOfLines={3}
+                value={disputeDetail}
+                onChangeText={setDisputeDetail}
+              />
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.modalCancelBtn} 
+                onPress={() => setDisputeModalVisible(false)}
+                disabled={submittingDispute}
+              >
+                <Text style={styles.modalCancelText}>ยกเลิก</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.modalSubmitBtn, !selectedReason && { opacity: 0.6 }]} 
+                onPress={submitDisputeReport}
+                disabled={submittingDispute || !selectedReason}
+              >
+                {submittingDispute ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSubmitText}>ส่งเรื่องให้แอดมิน</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -815,6 +1198,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: ORDER_THEME.textPrimary,
   },
+  disputedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FDEDEC',
+    borderWidth: 1,
+    borderColor: '#F5B7B1',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    padding: 14,
+    borderRadius: 14,
+  },
+  disputedBannerTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#D9534F',
+    marginBottom: 2,
+  },
+  disputedBannerText: {
+    fontSize: 12,
+    color: '#78281F',
+    lineHeight: 16,
+  },
   timeline: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
@@ -905,6 +1311,43 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  runnerProofBox: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  runnerProofBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    backgroundColor: '#FFF3EB',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FFD7C2',
+  },
+  runnerProofBtnText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF7A30',
+  },
+  proofFullButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#2ECC71',
+    borderRadius: 14,
+    paddingVertical: 16,
+    elevation: 2,
+  },
+  proofFullButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
   itemsCard: {
     marginHorizontal: 16,
@@ -1000,6 +1443,24 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 16
+  },
+  singleReportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F5B7B1',
+    borderRadius: 12,
+  },
+  singleReportBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E74C3C',
   },
   qrSection: {
     paddingHorizontal: 16,
@@ -1158,5 +1619,119 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 40
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeImageBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  fullImage: {
+    width: '92%',
+    height: '82%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 32,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5EBE1',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#3A2113',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8B7E74',
+    marginBottom: 8,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFFBF7',
+    borderWidth: 1,
+    borderColor: '#F5EBE1',
+    marginBottom: 6,
+  },
+  reasonOptionSelected: {
+    backgroundColor: '#FFF3EB',
+    borderColor: '#FF7A30',
+  },
+  reasonOptionText: {
+    fontSize: 13,
+    color: '#5C4638',
+    flex: 1,
+  },
+  reasonOptionTextSelected: {
+    color: '#FF7A30',
+    fontWeight: 'bold',
+  },
+  modalInput: {
+    backgroundColor: '#FFFBF7',
+    borderWidth: 1,
+    borderColor: '#EBDCD0',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 13,
+    color: '#3A2113',
+    minHeight: 70,
+    textAlignVertical: 'top',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F5EBE1',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: '#8B7E74',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  modalSubmitBtn: {
+    flex: 2,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#E74C3C',
+    alignItems: 'center',
+  },
+  modalSubmitText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });
