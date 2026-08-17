@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Act
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { ScreenHeader } from '@/components/ScreenHeader'; // 👈 นำเข้า ScreenHeader กลาง
 
 interface ShoppingItem {
   id: string;
@@ -38,7 +39,6 @@ export default function ShoppingListScreen() {
     setLoadError(null);
 
     try {
-      // 1. จัดการแยกรับ orderIds จากพารามิเตอร์ (ถ้ามี)
       let targetOrderIds: string[] = [];
       if (params.orderIds) {
         try {
@@ -48,7 +48,6 @@ export default function ShoppingListScreen() {
             targetOrderIds = params.orderIds as string[];
           }
         } catch (e) {
-          // บางครั้งพารามิเตอร์จะเป็น comma-separated
           const raw = String(params.orderIds);
           if (raw.includes(',')) targetOrderIds = raw.split(',').map(s => s.trim());
           else targetOrderIds = [raw];
@@ -57,9 +56,6 @@ export default function ShoppingListScreen() {
         targetOrderIds = [String(params.orderId)];
       }
 
-      console.log('ShoppingList: initial targetOrderIds', targetOrderIds);
-
-      // 2. ถ้าไม่มี orderIds ส่งมาจาก พารามิเตอร์ ให้ดึงออเดอร์ทั้งหมดของไรเดอร์คนนี้ที่กำลังดำเนินการอยู่ (Accepted / In_Progress)
       if (targetOrderIds.length === 0) {
         const { data: userData } = await supabase.auth.getUser();
         if (userData.user) {
@@ -67,13 +63,11 @@ export default function ShoppingListScreen() {
             .from('orders')
             .select('id, fee')
             .eq('runner_id', userData.user.id)
-            .not('status', 'in', '(completed,cancelled)'); // ดึงทุกสถานะยกเว้นที่เสร็จหรือยกเลิกแล้ว
+            .not('status', 'in', '(completed,cancelled)');
 
           if (activeError) {
             console.warn('ShoppingList: activeOrders error', activeError);
           }
-
-          console.log('ShoppingList: activeOrders', activeOrders);
 
           if (activeOrders && activeOrders.length > 0) {
             targetOrderIds = activeOrders.map((o: any) => o.id);
@@ -85,7 +79,6 @@ export default function ShoppingListScreen() {
         setTotalFee(paramFee);
       }
 
-      // ถ้าไม่มีงานค้างเลย
       if (targetOrderIds.length === 0) {
         setItems([]);
         setLoading(false);
@@ -94,7 +87,6 @@ export default function ShoppingListScreen() {
 
       setOrderCount(targetOrderIds.length);
 
-      // 3. ดึงรายการสินค้าทั้งหมด (order_items) จากทั้งคำขอแบบเปิดและแบบพ่วง
       const { data: itemData, error: itemError } = await supabase
         .from('order_items')
         .select(`
@@ -110,12 +102,8 @@ export default function ShoppingListScreen() {
         `)
         .in('order_id', targetOrderIds);
 
-      console.log('ShoppingList: itemData length', itemData ? itemData.length : 0, 'error', itemError);
-
       if (!itemError && itemData && itemData.length > 0) {
         const rows = itemData as any[];
-
-        // ดึงชื่อร้านและจุดส่งมาแสดงที่แถบหัวข้อ
         const firstOrder = rows[0]?.order;
         if (firstOrder) {
           setStoreName(firstOrder.store?.name || 'ร้านค้า');
@@ -130,7 +118,7 @@ export default function ShoppingListScreen() {
             avatarColor: i % 2 === 0 ? '#4A90E2' : '#9B59B6',
             itemName: `${row.item_name} (${row.quantity} ชิ้น)`,
             qty: row.quantity,
-            price: Number(row.actual_price ?? row.est_price ?? 0), // ใช้ actual_price เป็นหลัก
+            price: Number(row.actual_price ?? row.est_price ?? 0),
             isPicked: Boolean(row.is_bought ?? false),
           }))
         );
@@ -151,7 +139,6 @@ export default function ShoppingListScreen() {
     fetchRealData();
   }, [fetchRealData]);
 
-  // ฟังก์ชันสลับสถานะติ๊กเลือกหยิบสินค้าจริง
   const togglePickItem = async (id: string, currentStatus: boolean) => {
     setItems(prev => prev.map(item => item.id === id ? { ...item, isPicked: !item.isPicked } : item));
 
@@ -178,7 +165,6 @@ export default function ShoppingListScreen() {
     setItems(prev => prev.map(i => i.id === selectedItem.id ? { ...i, price: updatedPrice } : i));
     setModalVisible(false);
 
-    // บันทึกลงฟิลด์จริงในตาราง order_items คือ actual_price
     await supabase
       .from('order_items')
       .update({ actual_price: updatedPrice, est_price: updatedPrice })
@@ -187,20 +173,14 @@ export default function ShoppingListScreen() {
 
   const pickedCount = items.filter(i => i.isPicked).length;
   const progressPercent = items.length > 0 ? Math.round((pickedCount / items.length) * 100) : 0;
-  const remainingCount = items.length - pickedCount;
   const totalItemPrice = items.reduce((sum, item) => sum + item.price, 0);
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerBox}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color="#3A2113" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>ใบงานรวม Shopping List</Text>
-      </View>
+      {/* 🛠️ ใช้คอมโพเนนต์กลาง ScreenHeader แบบไร้แถบขาวกวนใจ */}
+      <ScreenHeader title="ใบงานรวม Shopping List" subtitle="ตรวจสอบและอัปเดตสถานะรายการสินค้า" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* แสดงพิกัดร้านค้าและปลายทางจริง */}
         <View style={styles.locationBar}>
           <Ionicons name="location" size={18} color="#FF5E13" />
           <Text style={styles.locationText}>
@@ -220,7 +200,6 @@ export default function ShoppingListScreen() {
         ) : (
           items.map((item) => (
             <View key={item.id} style={styles.itemCard}>
-              {/* ช่องติ๊กซ้ายสุด สำหรับติ๊กเช็คลิสต์สถานะสินค้า */}
               <TouchableOpacity
                 style={styles.checkboxTouch}
                 onPress={() => togglePickItem(item.id, item.isPicked)}
@@ -231,7 +210,6 @@ export default function ShoppingListScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* ส่วนรูปอวาตาร์และชื่อสินค้า: กดตรงนี้เพื่อเข้าไปดูรายละเอียดออเดอร์เชิงลึก */}
               <TouchableOpacity
                 style={styles.itemMainClick}
                 onPress={() => router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } } as any)}
@@ -249,7 +227,6 @@ export default function ShoppingListScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* ปุ่มแก้ราคาจริง */}
               <TouchableOpacity style={styles.editPriceBtn} onPress={() => handleOpenPriceModal(item)}>
                 <Ionicons name="create-outline" size={18} color="#FF7A30" />
               </TouchableOpacity>
@@ -325,9 +302,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderColor: '#F5EBE1', gap: 12 },
-  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
   scrollContent: { padding: 20 },
   locationBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#4A90E2', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 8, marginBottom: 20 },
   locationText: { fontSize: 13, fontWeight: 'bold', color: '#3A2113' },
@@ -340,7 +314,6 @@ const styles = StyleSheet.create({
   itemText: { fontSize: 13, fontWeight: '600', color: '#3A2113' },
   itemTextCrossed: { textDecorationLine: 'line-through', color: '#B0A498' },
   itemPriceSub: { fontSize: 11, color: '#FF7A30', fontWeight: 'bold', marginTop: 2 },
-  checkToggleBtn: { padding: 4 },
   editPriceBtn: { padding: 6, backgroundColor: '#FFF3EB', borderRadius: 8 },
   progressSection: { marginTop: 16, marginBottom: 20 },
   progressMeta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
@@ -357,7 +330,7 @@ const styles = StyleSheet.create({
   btnTextSuccess: { color: '#FFFFFF' },
   emptyText: { textAlign: 'center', color: '#8B7E74', marginVertical: 20 },
   refreshBtn: { alignSelf: 'center', backgroundColor: '#FFF3EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, marginTop: 4 },
-refreshText: { color: '#FF7A30', fontWeight: 'bold', fontSize: 13 },
+  refreshText: { color: '#FF7A30', fontWeight: 'bold', fontSize: 13 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { width: '100%', maxWidth: 320, backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, alignItems: 'center', gap: 12 },
   modalTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },

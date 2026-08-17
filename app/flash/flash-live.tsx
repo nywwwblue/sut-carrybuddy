@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, Act
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { ScreenHeader } from '@/components/ScreenHeader'; 
 
 interface IncomingOrder {
   id: string;
@@ -146,16 +147,10 @@ export default function FlashLiveScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerBox}>
-        <TouchableOpacity 
-          style={styles.backBtn} 
-          onPress={() => router.replace(('/(runner-tabs)'))}
-        >
-          <Ionicons name="arrow-back" size={20} color="#3A2113" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Live Flash Buy: กำลังรับออเดอร์</Text>
-      </View>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* 🛠️ ใช้ ScreenHeader กลาง แบบไม่มีแถบขาว เพื่อให้สอดคล้องกับหน้าอื่น */}
+      <ScreenHeader title="Live Flash Buy: กำลังรับออเดอร์" subtitle={`เส้นทาง: ${routePass}`} />
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.timerCard}>
           <Text style={styles.timerStatusText}>เวลาคงเหลือ</Text>
           <Text style={styles.timerDigits}>{timeLeft}</Text>
@@ -197,28 +192,7 @@ export default function FlashLiveScreen() {
 }
 
 const styles = StyleSheet.create({
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E8D5C4',
-  },
-  container: { flex: 1, backgroundColor: '#FFF8EF' },
-  headerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderColor: '#E8D5C4',
-    gap: 12,
-  },
-  headerTitle: { fontSize: 15, fontWeight: 'bold', color: '#FF7A30', flex: 1 },
+  container: { flex: 1, backgroundColor: '#FFFBF7' }, // 👈 ปรับสีพื้นหลังให้ตรงกับธีมหลัก
   scrollContent: { padding: 20 },
   timerCard: {
     backgroundColor: '#FF7A30',

@@ -97,19 +97,17 @@ export default function RiderDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        
-        {/* Header ปกติ และทำปุ่มลอยขวาบนทับไว้ */}
-        <View style={{ position: 'relative' }}>
-          <ScreenHeader title="รายละเอียดโพสต์" />
-          <TouchableOpacity
-            onPress={() => setReportVisible(true)}
-            style={styles.floatingMenuBtn}
-          >
-            <Ionicons name="ellipsis-vertical" size={22} color="#8B7E74" />
+      {/* 🛠️ ใช้ ScreenHeader กลาง พร้อมส่งปุ่ม 3 จุดเข้าทาง rightElement */}
+      <ScreenHeader 
+        title="รายละเอียดโพสต์" 
+        rightElement={
+          <TouchableOpacity onPress={() => setReportVisible(true)} activeOpacity={0.7}>
+            <Ionicons name="ellipsis-vertical" size={20} color="#3A2113" />
           </TouchableOpacity>
-        </View>
+        }
+      />
 
+      <ScrollView showsVerticalScrollIndicator={false}>
         {loading ? (
           <ActivityIndicator color="#FF7A30" style={{ marginTop: 40 }} />
         ) : !post ? (
@@ -207,13 +205,6 @@ export default function RiderDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  floatingMenuBtn: {
-    position: 'absolute',
-    right: 16,
-    top: 12,
-    padding: 8,
-    zIndex: 10,
-  },
   container: { flex: 1, backgroundColor: '#FFFBF7' },
   emptySubtext: { textAlign: 'center', color: '#B0A498', fontSize: 13, paddingVertical: 10 },
   profileSection: { alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20 },

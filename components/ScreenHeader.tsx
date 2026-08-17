@@ -3,25 +3,22 @@ import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ORDER_THEME } from '@/constants/OrderTheme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   title: string;
   subtitle?: string;
-  onBack?: () => void; // ไม่ใส่ก็ได้ ค่าเริ่มต้นจะ router.back() ให้เอง
-  rightElement?: React.ReactNode; // ปุ่ม/ไอคอนฝั่งขวา เช่น กระดิ่งแจ้งเตือน
+  onBack?: () => void;
+  rightElement?: React.ReactNode;
 }
 
-/**
- * Header กลางที่ใช้แทนแถว "ปุ่มย้อนกลับวงกลม + ชื่อหน้า" ที่แต่ละหน้าเคยเขียนซ้ำกันเอง
- * ป้องกันปัญหาสไตล์ไม่ตรงกัน และกันบั๊ก native header ซ้อน (ทุกหน้าต้องปิด headerShown ที่ Stack อยู่แล้ว
- * component นี้คือ header จริงหนึ่งเดียวที่ควรโชว์)
- */
 export function ScreenHeader({ title, subtitle, onBack, rightElement }: Props) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.header}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack || (() => router.back())}>
+    <View style={[styles.header, { paddingTop: Math.max(4, insets.top - 12) }]}>
+      <TouchableOpacity style={styles.backBtn} onPress={onBack || (() => router.back())} activeOpacity={0.7}>
         <Ionicons name="chevron-back" size={22} color="#3A2113" />
       </TouchableOpacity>
 
@@ -30,7 +27,9 @@ export function ScreenHeader({ title, subtitle, onBack, rightElement }: Props) {
         {!!subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
       </View>
 
-      {rightElement ? <View style={styles.rightSlot}>{rightElement}</View> : <View style={styles.rightSlot} />}
+      <View style={styles.rightSlot}>
+        {rightElement}
+      </View>
     </View>
   );
 }
@@ -39,34 +38,39 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 6, // 👈 ลดช่องว่างด้านล่างลง
+    backgroundColor: 'transparent',
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38, // 👈 ปรับขนาดปุ่มให้กะทัดรัดขึ้น
+    height: 38,
+    borderRadius: 19,
     backgroundColor: ORDER_THEME.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E8D5C4',
   },
   titleBlock: {
     flex: 1,
   },
   title: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: 'bold',
     color: ORDER_THEME.textPrimary,
   },
   subtitle: {
     fontSize: 11,
     color: ORDER_THEME.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
   rightSlot: {
-    width: 40,
-    alignItems: 'flex-end',
+    width: 38, // 👈 ให้เท่ากับปุ่มซ้ายเป๊ะๆ
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

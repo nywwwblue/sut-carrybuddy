@@ -85,7 +85,7 @@ export default function WalletScreen() {
             <Text style={styles.frozenText}>ถูกล็อกมัดจำอยู่ ฿{frozenBalance.toFixed(2)}</Text>
           )}
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.actionButton} onPress={() => router.push({ pathname: '/payment/payment-methods', params: { mode: 'topup' } })}>
+            <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/payment/topup' as any)}>
               <Text style={styles.actionButtonText}>เติมเงิน</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={() => router.push({ pathname: '/payment/payment-methods', params: { mode: 'withdraw' } })}>

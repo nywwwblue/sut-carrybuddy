@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { LocationPickerModal, PickedLocation } from '@/components/LocationPickerModal';
+import { ScreenHeader } from '@/components/ScreenHeader'; 
 
 function locationLabel(loc: PickedLocation | null) {
   if (!loc) return null;
@@ -55,7 +56,6 @@ export default function FlashControllerScreen() {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) return;
 
-      // 1. สร้างโพสต์หลักฝั่ง runner_posts พร้อมรองรับทั้งแบบ Preset และ Custom Map
       const { data: postData, error: postError } = await supabase
         .from('runner_posts')
         .insert({
@@ -76,7 +76,6 @@ export default function FlashControllerScreen() {
 
       if (postError) throw postError;
 
-      // 2. บันทึกเซสชันลงตาราง flash_buy_sessions เพื่อเปิดให้ฝั่งคนซื้อเห็นป้ายแบนเนอร์เรียลไทม์
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
       const { error: sessionError } = await supabase
         .from('flash_buy_sessions')
@@ -104,18 +103,11 @@ export default function FlashControllerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerBox}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={20} color="#3A2113" />
-        </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>โหมดเปิดรับคำขอด่วน (Flash Buy)</Text>
-        </View>
-      </View>
+      {/* 🛠️ ใช้ ScreenHeader กลาง แบบไม่มีแถบขาว เพื่อให้สอดคล้องกับหน้าอื่น */}
+      <ScreenHeader title="โหมดเปิดรับคำขอด่วน (Flash Buy)" />
 
       <ScrollView contentContainerStyle={styles.contentBox} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
-          {/* 1. เลือกสถานที่ต้นทาง */}
           <LocationField
             title="1. คุณกำลังจะเดินทางไปซื้อของที่ไหน?"
             placeholder="เลือกพิกัดร้านค้า/โรงอาหาร..."
@@ -123,7 +115,6 @@ export default function FlashControllerScreen() {
             onPress={() => setPickerOpen('store')}
           />
 
-          {/* 2. เลือกสถานที่ปลายทาง */}
           <LocationField
             title="2. จุดหมายปลายทางหลักที่คุณจะไปส่งคือที่ไหน?"
             placeholder="เลือกตึก/หอพักที่สะดวกนำส่ง..."
@@ -131,7 +122,6 @@ export default function FlashControllerScreen() {
             onPress={() => setPickerOpen('dropoff')}
           />
 
-          {/* 3. ระบุเส้นทางผ่าน */}
           <Text style={[styles.cardQuestion, { marginTop: 8 }]}>3. คุณจะเดินทางผ่านเส้นทางหรือจุดไหนบ้าง?</Text>
           <TextInput
             style={styles.locationInput}
@@ -147,7 +137,6 @@ export default function FlashControllerScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal เลือกพิกัดแผนที่หรือจุด Preset */}
       <LocationPickerModal
         visible={pickerOpen === 'store'}
         kind="store"
@@ -165,11 +154,7 @@ export default function FlashControllerScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF8EF' },
-  headerBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, gap: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderColor: '#E8D5C4' },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E8D5C4' },
-  headerInfo: { flex: 1 },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
+  container: { flex: 1, backgroundColor: '#FFFBF7' }, // ปรับสีพื้นหลังให้ตรงกัน
   contentBox: { padding: 20 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#E8D5C4', marginBottom: 24 },
   cardQuestion: { fontSize: 14, fontWeight: 'bold', color: '#3A2113', marginBottom: 10 },

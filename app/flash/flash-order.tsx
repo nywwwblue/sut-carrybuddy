@@ -1,370 +1,189 @@
-import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import React, { useEffect, useCallback, useState } from 'react';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { ItemListEditor, EditableItem, calcItemTotal } from '@/components/ItemListEditor';
-import { ORDER_THEME } from '@/constants/OrderTheme';
-
-const COD_LIMIT = 200;
-
-interface FlashPostDetail {
-  id: number;
-  runner_id: string;
-  runner_name: string;
-  store_id: number | null;
-  store_name: string;
-  fee_per_order: number;
-  max_orders: number;
-}
-
-interface DropoffLocation {
-  id: number;
+import { ScreenHeader } from '@/components/ScreenHeader'; 
+interface IncomingOrder {
+  id: string;
   name: string;
-  zone?: string;
+  destination: string;
+  fee: number;
 }
 
-export default function FlashOrderScreen() {
+export default function FlashLiveScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const flashPostId = params.flashPostId ? Number(params.flashPostId) : null;
+  const flashPostId = params.postId ? Number(params.postId) : null;
+  const routePass = (params.routePass as string) || 'สุรนิเวศ 16';
 
-  const [postDetail, setPostDetail] = useState<FlashPostDetail | null>(null);
-  const [dropoffLocations, setDropoffLocations] = useState<DropoffLocation[]>([]);
-  const [selectedDropoffId, setSelectedDropoffId] = useState<number | null>(null);
-  const [customDropoffLabel, setCustomDropoffLabel] = useState('');
-
-  const [items, setItems] = useState<EditableItem[]>([{ name: '', quantity: '1', price: '' }]);
-  const [note, setNote] = useState('');
-  
-  const [paymentMode, setPaymentMode] = useState<'wallet' | 'cod'>('wallet');
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
-
+  const [incomingOrders, setIncomingOrders] = useState<IncomingOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState('00:00');
 
-  const itemTotal = calcItemTotal(items);
-  const total = itemTotal + (postDetail?.fee_per_order || 0);
-
-  // ดึงข้อมูลโพสต์ด่วน สถานที่จัดส่ง และยอดเงินใน Wallet
-  const loadData = useCallback(async () => {
-    if (!flashPostId) {
-      setLoading(false);
-      return;
-    }
+  // ดึงข้อมูลออเดอร์สดจากฐานข้อมูล
+  const loadIncomingOrders = useCallback(async () => {
+    if (!flashPostId) return;
     setLoading(true);
-
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user) {
-        const { data: wallet } = await supabase
-          .from('wallets')
-          .select('available_balance')
-          .eq('user_id', userData.user.id)
-          .single();
-        if (wallet) setWalletBalance(Number(wallet.available_balance));
-      }
-
-      // โหลดข้อมูลโพสต์
-      const { data: postData, error: postError } = await supabase
-        .from('runner_posts')
-        .select(`
-          id, runner_id, fee_per_order, max_orders,
-          runner:runner_id ( name ),
-          store:store_id ( name ),
-          custom_origin_label
-        `)
-        .eq('id', flashPostId)
-        .single();
-
-      if (!postError && postData) {
-        const raw = postData as any;
-        setPostDetail({
-          id: raw.id,
-          runner_id: raw.runner_id,
-          runner_name: raw.runner?.name || 'Runner มทส.',
-          store_id: raw.store_id,
-          store_name: raw.store?.name || raw.custom_origin_label || 'ร้านค้า มทส.',
-          fee_per_order: raw.fee_per_order || 15,
-          max_orders: raw.max_orders || 5,
-        });
-      }
-
-      // โหลดจุดส่งของยอดฮิตใน มทส.
-      const { data: dropoffData } = await supabase
-        .from('dropoff_locations')
-        .select('id, name, zone')
-        .eq('is_active', true)
-        .limit(8);
-
-      if (dropoffData) {
-        setDropoffLocations(dropoffData as DropoffLocation[]);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [flashPostId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
-
-  const handleConfirmOrder = async () => {
-    if (submitting) return;
-
-    const validItems = items.filter((i) => i.name.trim());
-    if (validItems.length === 0) {
-      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกรายการสินค้าอย่างน้อย 1 อย่างครับ');
-      return;
-    }
-    if (!selectedDropoffId && !customDropoffLabel.trim()) {
-      Alert.alert('ข้อมูลไม่ครบ', 'กรุณาเลือกหรือระบุจุดส่งของปลายทางของคุณ');
-      return;
-    }
-
-    // คำนวณยอดเงินสดๆ ณ ตอนกดปุ่ม เพื่อความแม่นยำสูงสุด
-    const currentItemTotal = calcItemTotal(items);
-    const currentFee = postDetail?.fee_per_order || 0;
-    const calculatedTotal = currentItemTotal + currentFee;
-    const currentWalletBalance = walletBalance !== null ? Number(walletBalance) : 0;
-
-    if (paymentMode === 'cod' && calculatedTotal > COD_LIMIT) {
-      Alert.alert('เกินวงเงิน COD', `ออเดอร์ชำระปลายทางได้ไม่เกิน ฿${COD_LIMIT} กรุณาเลือกชำระผ่าน Wallet แทน`);
-      return;
-    }
     
-    // ตรวจสอบยอดเงิน Wallet 
-    if (paymentMode === 'wallet' && currentWalletBalance < calculatedTotal) {
-      Alert.alert('เงินใน Wallet ไม่พอ', `ยอดคงเหลือ ฿${currentWalletBalance.toFixed(2)} แต่ต้องใช้ ฿${calculatedTotal.toFixed(2)}`);
-      return;
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id, fee, status,
+        requester:requester_id ( name ),
+        dropoff:dropoff_id ( name ),
+        custom_dropoff_label
+      `)
+      .eq('post_id', flashPostId)
+      .in('status', ['accepted', 'delivering', 'pending']);
+
+    if (!error && data) {
+      setIncomingOrders(data.map((row: any) => ({
+        id: String(row.id),
+        name: row.requester?.name || 'ลูกค้า',
+        destination: row.dropoff?.name || row.custom_dropoff_label || routePass,
+        fee: Number(row.fee) || 0,
+      })));
     }
+    setLoading(false);
+  }, [flashPostId, routePass]);
 
-    if (!postDetail) return;
+  // ฟังก์ชันปิดเซสชันเมื่อหมดเวลา
+  const handleExpireSession = useCallback(async () => {
+    if (!flashPostId) return;
+    await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
+    await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
+    
+    Alert.alert('หมดเวลา Flash Buy', 'ครบกำหนดเวลาแล้ว ระบบปิดรับออเดอร์ด่วนอัตโนมัติ');
+    router.replace('/runner/runner-home');
+  }, [flashPostId, router]);
 
-    setSubmitting(true);
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) return;
+  // ระบบคำนวณเวลาถอยหลังจริงจาก DB (expires_at)
+  useEffect(() => {
+    if (!flashPostId) return;
 
-      // 1. สร้างออเดอร์สถานะ pending เพื่อให้ระบบล็อกเงิน escrow ได้ถูกต้อง
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          requester_id: userData.user.id,
-          post_id: postDetail.id,
-          runner_id: postDetail.runner_id,
-          store_id: postDetail.store_id,
-          payment_mode: paymentMode,
-          item_total: currentItemTotal,
-          fee: currentFee,
-          status: 'pending',
-          dropoff_id: selectedDropoffId,
-          custom_dropoff_label: selectedDropoffId ? null : customDropoffLabel.trim(),
-        })
-        .select('id')
+    let timer: ReturnType<typeof setInterval>;
+
+    const fetchAndStartTimer = async () => {
+      const { data, error } = await supabase
+        .from('flash_buy_sessions')
+        .select('expires_at')
+        .eq('post_id', flashPostId)
         .single();
 
-      if (orderError || !orderData) throw orderError ?? new Error('ไม่สามารถสร้างออเดอร์ได้');
+      if (error || !data?.expires_at) return;
 
-      try {
-        // 2. ถ้าเลือก Wallet ให้ทำการล็อกเงินมัดจำ
-        if (paymentMode === 'wallet') {
-          const { error: escrowError } = await supabase.rpc('lock_order_escrow', {
-            p_order_id: orderData.id,
-            p_total_amount: calculatedTotal,
-          });
-          if (escrowError) throw escrowError;
+      const expireTime = new Date(data.expires_at).getTime();
+
+      const updateTimer = () => {
+        const now = new Date().getTime();
+        const diffInSeconds = Math.floor((expireTime - now) / 1000);
+
+        if (diffInSeconds <= 0) {
+          setTimeLeft('00:00');
+          if (timer) clearInterval(timer);
+          handleExpireSession();
+        } else {
+          const mins = Math.floor(diffInSeconds / 60);
+          const secs = diffInSeconds % 60;
+          setTimeLeft(
+            `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+          );
         }
+      };
 
-        // 3. บันทึกรายการสินค้า
-        const { error: itemsError } = await supabase.from('order_items').insert(
-          validItems.map((i) => ({
-            order_id: orderData.id,
-            item_name: i.name,
-            quantity: Number(i.quantity) || 1,
-            est_price: Number(i.price) || 0,
-            note: note || null,
-          }))
-        );
+      updateTimer();
+      timer = setInterval(updateTimer, 1000);
+    };
 
-        if (itemsError) throw itemsError;
+    fetchAndStartTimer();
 
-        // 4. บันทึก Log สถานะ
-        await supabase.from('order_status_logs').insert({
-          order_id: orderData.id,
-          changed_by: userData.user.id,
-          status: 'pending',
-          note: 'สร้างคำขอจาก Flash Buy และยืนยันการชำระเงินแล้ว',
-        });
-      } catch (err: any) {
-        await supabase.from('orders').delete().eq('id', orderData.id);
-        throw err;
-      }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [flashPostId, handleExpireSession]);
 
-      Alert.alert('เข้าร่วมสำเร็จ', 'ส่งรายการสินค้าไปยังผู้รับหิ้วเรียบร้อยแล้ว!', [
-        { text: 'ดูออเดอร์', onPress: () => router.replace('/(tabs)') }
-      ]);
-    } catch (err: any) {
-      Alert.alert('สั่งซื้อไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาด');
-    } finally {
-      setSubmitting(false);
+  useEffect(() => {
+    if (!flashPostId) return;
+    loadIncomingOrders();
+
+    const interval = setInterval(() => {
+      loadIncomingOrders();
+    }, 3000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [flashPostId, loadIncomingOrders]);
+
+  const totalBundleFee = incomingOrders.reduce((sum, order) => sum + order.fee, 0);
+
+  const handleAcceptBundle = async () => {
+    if (incomingOrders.length === 0) return;
+    const orderIds = incomingOrders.map(o => o.id);
+    const { error } = await supabase.from('orders').update({ status: 'accepted' }).in('id', orderIds);
+
+    if (!error) {
+      router.push({
+        pathname: '/shopping-list' as any,
+        params: { orderIds: JSON.stringify(orderIds), totalFee: totalBundleFee }
+      });
     }
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#FF7A30" />
-      </SafeAreaView>
-    );
-  }
+  const handleManualCloseFlash = async () => {
+    if (!flashPostId) {
+      router.replace('/(runner-tabs)');
+      return;
+    }
 
-  if (!postDetail) {
-    return (
-      <SafeAreaView style={[styles.container, styles.center]}>
-        <Text style={styles.errorText}>ไม่พบข้อมูลเซสชันด่วนนี้ หรืออาจหมดเวลา 5 นาทีแล้ว</Text>
-        <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
-          <Text style={styles.backLinkText}>กลับหน้าหลัก</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
+    await supabase.from('runner_posts').update({ status: 'closed' }).eq('id', flashPostId);
+    await supabase.from('flash_buy_sessions').update({ status: 'closed' }).eq('post_id', flashPostId);
+
+    Alert.alert('ปิดบอร์ดสำเร็จ', 'คุณได้ปิดรับออเดอร์ด่วนเรียบร้อยแล้ว');
+    router.replace('/(runner-tabs)');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerBox}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={20} color="#3A2113" />
+      {/* 🛠️ ใช้ ScreenHeader กลาง แบบไม่มีแถบขาว เพื่อให้สอดคล้องกับหน้าอื่น */}
+      <ScreenHeader title="Live Flash Buy: กำลังรับออเดอร์" subtitle={`เส้นทาง: ${routePass}`} />
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.timerCard}>
+          <Text style={styles.timerStatusText}>เวลาคงเหลือ</Text>
+          <Text style={styles.timerDigits}>{timeLeft}</Text>
+          <Text style={styles.timerNote}>บอร์ดจะปิดอัตโนมัติเมื่อครบกำหนดเวลา</Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>ออเดอร์ด่วนที่เข้ามา ({incomingOrders.length})</Text>
+        
+        {loading ? (
+          <ActivityIndicator color="#FF7A30" style={{ marginVertical: 20 }} />
+        ) : incomingOrders.length === 0 ? (
+          <Text style={styles.emptyText}>ยังไม่มีออเดอร์ด่วนส่งเข้ามาในช่วงเวลานี้...</Text>
+        ) : (
+          incomingOrders.map((order) => (
+            <View key={order.id} style={styles.orderCard}>
+              <Text style={styles.orderText}>{order.name} → {order.destination}</Text>
+              <Text style={styles.cardFee}>+{order.fee}฿</Text>
+            </View>
+          ))
+        )}
+
+        <TouchableOpacity 
+          style={[styles.mainBundleBtn, incomingOrders.length === 0 && { backgroundColor: '#E8D5C4' }]} 
+          onPress={handleAcceptBundle} 
+          disabled={incomingOrders.length === 0}
+        >
+          <Text style={styles.mainBundleBtnText}>รับทั้งหมด Bundle {totalBundleFee}฿</Text>
         </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>สั่งซื้อด่วนร่วมกับกลุ่ม</Text>
-          <Text style={styles.headerSubtitle}>สั่งฝากหิ้วจากร้านเดียวกับที่ไรเดอร์กำลังจะไป</Text>
-        </View>
-      </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* ข้อมูลร้านค้าและไรเดอร์ */}
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="storefront" size={20} color="#FF7A30" />
-            </View>
-            <View style={styles.textData}>
-              <Text style={styles.cardLabel}>ร้านค้าต้นทาง</Text>
-              <Text style={styles.cardValue}>{postDetail.store_name}</Text>
-            </View>
-          </View>
-          
-          <View style={[styles.infoRow, { marginTop: 14 }]}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="person" size={20} color="#FF7A30" />
-            </View>
-            <View style={styles.textData}>
-              <Text style={styles.cardLabel}>ผู้รับหิ้ว (Runner)</Text>
-              <Text style={styles.cardValue}>{postDetail.runner_name}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* เลือกจุดส่งของปลายทาง (Dropoff) */}
-        <Text style={styles.sectionLabel}>เลือกจุดส่งของปลายทาง (Dropoff)</Text>
-        <TextInput
-          style={styles.locationInput}
-          placeholder="พิมพ์ระบุจุดส่งเอง เช่น หอพักสุรนิเวศ 16..."
-          placeholderTextColor="#B0A498"
-          value={customDropoffLabel}
-          onChangeText={(text) => {
-            setCustomDropoffLabel(text);
-            setSelectedDropoffId(null);
-          }}
-        />
-        <View style={styles.chipGrid}>
-          {dropoffLocations.map((loc) => {
-            const isSelected = selectedDropoffId === loc.id;
-            return (
-              <TouchableOpacity
-                key={loc.id}
-                style={[styles.chip, isSelected && styles.chipActive]}
-                onPress={() => {
-                  setSelectedDropoffId(loc.id);
-                  setCustomDropoffLabel(loc.name);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
-                  {loc.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* เลือกวิธีชำระเงิน */}
-        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>เลือกวิธีชำระเงิน</Text>
-        <View style={styles.paymentRow}>
-          <TouchableOpacity
-            style={[styles.paymentCard, paymentMode === 'wallet' && styles.paymentCardActive]}
-            onPress={() => setPaymentMode('wallet')}
-          >
-            <Ionicons name="wallet" size={20} color="#FF7A30" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.paymentTitle}>In-App Wallet</Text>
-              <Text style={styles.paymentDesc}>ยอดคงเหลือ ฿{walletBalance !== null ? walletBalance.toFixed(2) : '...'}</Text>
-            </View>
-            <Ionicons name={paymentMode === 'wallet' ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={paymentMode === 'wallet' ? '#FF7A30' : '#D9CFC5'} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.paymentCard, paymentMode === 'cod' && styles.paymentCardActive]}
-            onPress={() => setPaymentMode('cod')}
-          >
-            <Ionicons name="cash" size={20} color="#FF7A30" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.paymentTitle}>ชำระปลายทาง COD</Text>
-              <Text style={styles.paymentDesc}>ไม่เกิน ฿{COD_LIMIT}</Text>
-            </View>
-            <Ionicons name={paymentMode === 'cod' ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={paymentMode === 'cod' ? '#FF7A30' : '#D9CFC5'} />
-          </TouchableOpacity>
-        </View>
-
-        {/* รายการสินค้า */}
-        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>รายการสินค้าที่คุณต้องการสั่ง</Text>
-        <ItemListEditor items={items} onChange={setItems} />
-
-        {/* หมายเหตุ */}
-        <Text style={[styles.sectionLabel, { marginTop: 16 }]}>หมายเหตุถึงไรเดอร์ (ไม่บังคับ)</Text>
-        <TextInput
-          style={styles.noteInput}
-          placeholder="เช่น เพิ่มเผ็ด, แยกน้ำแข็ง หรือรายละเอียดระบุชัดเจน"
-          placeholderTextColor="#B0A498"
-          value={note}
-          onChangeText={setNote}
-          multiline
-        />
-
-        {/* สรุปยอดเงิน */}
-        <View style={styles.summaryBox}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>รวมราคาสินค้าโดยประมาณ</Text>
-            <Text style={styles.summaryValue}>฿{itemTotal.toFixed(0)}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>ค่าหิ้วด่วนคงที่ (ตามโพสต์)</Text>
-            <Text style={styles.summaryValue}>฿{postDetail.fee_per_order.toFixed(0)}</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>ยอดรวมทั้งสิ้น</Text>
-            <Text style={styles.totalValue}>฿{total.toFixed(0)}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.submitBtn} onPress={handleConfirmOrder} disabled={submitting}>
-          {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitBtnText}>ยืนยันร่วมส่งคำขอ</Text>}
+        <TouchableOpacity 
+          style={[styles.mainBundleBtn, { backgroundColor: '#E74C3C', marginTop: 12 }]} 
+          onPress={handleManualCloseFlash}
+        >
+          <Text style={styles.mainBundleBtnText}>ปิดบอร์ด Flash Buy</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -372,43 +191,48 @@ export default function FlashOrderScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF7' },
-  center: { justifyContent: 'center', alignItems: 'center', padding: 20 },
-  headerBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderColor: '#F5EBE1', gap: 12 },
-  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
-  headerInfo: { flex: 1 },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#3A2113' },
-  headerSubtitle: { fontSize: 12, color: '#8B7E74', marginTop: 2 },
+  container: { flex: 1, backgroundColor: '#FFFBF7' }, // 👈 ปรับสีพื้นหลังให้ตรงกับธีมหลัก
   scrollContent: { padding: 20 },
-  infoCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F5EBE1', marginBottom: 20 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFF3EB', alignItems: 'center', justifyContent: 'center' },
-  textData: { flex: 1 },
-  cardLabel: { fontSize: 11, color: '#8B7E74', fontWeight: '600' },
-  cardValue: { fontSize: 14, fontWeight: 'bold', color: '#3A2113', marginTop: 2 },
-  sectionLabel: { fontSize: 13, fontWeight: '700', color: '#3A2113', marginBottom: 8 },
-  locationInput: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 13, color: '#3A2113', borderWidth: 1, borderColor: '#F5EBE1', marginBottom: 10 },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  chip: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8D5C4', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  chipActive: { backgroundColor: '#FFF3EB', borderColor: '#FF7A30' },
-  chipText: { fontSize: 12, color: '#3A2113', fontWeight: '600' },
-  chipTextActive: { color: '#FF7A30', fontWeight: '700' },
-  paymentRow: { flexDirection: 'row', gap: 10 },
-  paymentCard: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#F5EBE1', gap: 6 },
-  paymentCardActive: { borderColor: '#FF7A30', borderWidth: 1.5, backgroundColor: '#FFF3EB' },
-  paymentTitle: { fontSize: 13, fontWeight: 'bold', color: '#3A2113' },
-  paymentDesc: { fontSize: 11, color: '#8B7E74' },
-  noteInput: { backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontSize: 13, color: '#3A2113', borderWidth: 1, borderColor: '#F5EBE1', minHeight: 65, textAlignVertical: 'top' },
-  summaryBox: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F5EBE1', marginTop: 20 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  summaryLabel: { fontSize: 13, color: '#8B7E74', fontWeight: '500' },
-  summaryValue: { fontSize: 13, fontWeight: '600', color: '#3A2113' },
-  divider: { height: 1, backgroundColor: '#F5EBE1', marginVertical: 6 },
-  totalLabel: { fontSize: 14, fontWeight: 'bold', color: '#3A2113' },
-  totalValue: { fontSize: 16, fontWeight: 'bold', color: '#FF7A30' },
-  submitBtn: { backgroundColor: '#FF7A30', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24, shadowColor: '#FF7A30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 3 },
-  submitBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
-  errorText: { fontSize: 14, color: '#8B7E74', textAlign: 'center', fontWeight: '500' },
-  backLink: { marginTop: 14, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#FFF3EB', borderRadius: 10 },
-  backLinkText: { color: '#FF7A30', fontWeight: '700', fontSize: 13 },
+  timerCard: {
+    backgroundColor: '#FF7A30',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#FF7A30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  timerStatusText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  timerDigits: { color: '#FFFFFF', fontSize: 36, fontWeight: 'bold', letterSpacing: 2 },
+  timerNote: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 11, marginTop: 8, textAlign: 'center' },
+  sectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#3A2113', marginBottom: 12 },
+  emptyText: { textAlign: 'center', color: '#B0A498', fontSize: 13, marginVertical: 20 },
+  orderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E8D5C4',
+  },
+  orderText: { fontSize: 13, fontWeight: 'bold', color: '#3A2113', flex: 1 },
+  cardFee: { fontSize: 14, fontWeight: 'bold', color: '#2ECC71' },
+  mainBundleBtn: {
+    backgroundColor: '#FF7A30',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 20,
+    shadowColor: '#FF7A30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  mainBundleBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });

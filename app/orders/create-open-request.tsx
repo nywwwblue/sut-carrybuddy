@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { LocationPickerModal, PickedLocation } from '@/components/LocationPickerModal';
 import { ItemListEditor, EditableItem, calcItemTotal } from '@/components/ItemListEditor';
 import { ORDER_THEME } from '@/constants/OrderTheme';
+import { ScreenHeader } from '@/components/ScreenHeader';
 
 function locationLabel(loc: PickedLocation | null) {
   if (!loc) return null;
@@ -54,13 +55,11 @@ export default function CreateOpenRequest() {
         post_id: null,
         runner_id: null,
         
-        // 🏪 ส่วนร้านค้า ( Store ) - แก้ไขให้บันทึกทั้ง Preset และ Custom
         store_id: store.type === 'preset' ? store.id : null,
         custom_store_lat: store.type === 'custom' ? store.lat : null,
         custom_store_lng: store.type === 'custom' ? store.lng : null,
         custom_store_label: store.type === 'custom' ? store.label : null,
 
-        // 🏠 ส่วนจุดส่ง ( Dropoff )
         dropoff_id: dropoff.type === 'preset' ? dropoff.id : null,
         custom_dropoff_lat: dropoff.type === 'custom' ? dropoff.lat : null,
         custom_dropoff_lng: dropoff.type === 'custom' ? dropoff.lng : null,
@@ -98,15 +97,8 @@ export default function CreateOpenRequest() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerBox}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={20} color="#3A2113" />
-        </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>โพสต์ฝากหิ้วแบบเปิด</Text>
-          <Text style={styles.headerSubtitle}>ยังไม่ต้องเลือกคนรับ รอใครสะดวกมากดรับงาน</Text>
-        </View>
-      </View>
+      {/* 🛠️ ใช้ ScreenHeader กลาง แบบไม่มีแถบขาว เพื่อให้สอดคล้องกับหน้าอื่น */}
+      <ScreenHeader title="โพสต์ฝากหิ้วแบบเปิด" subtitle="ยังไม่ต้องเลือกคนรับ รอใครสะดวกมากดรับงาน" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.sectionCard}>
@@ -214,38 +206,7 @@ export default function CreateOpenRequest() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: ORDER_THEME.backgroundAlt,
-  },
-  headerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: ORDER_THEME.surface,
-    borderBottomWidth: 1,
-    borderColor: ORDER_THEME.borderSoft,
-    gap: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#3A2113',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#8B7E74',
-    marginTop: 2,
+    backgroundColor: '#FFFBF7',
   },
   scrollContent: {
     padding: 20,
@@ -320,7 +281,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '500',
   },
-  /* สไตล์สำหรับปุ่มเลือกวิธีการชำระเงิน */
   paymentRow: {
     flexDirection: 'row',
     gap: 12,
