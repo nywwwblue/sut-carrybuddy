@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +15,7 @@ interface PostDetail {
   vehicle_type: string | null;
   runnerId: string;
   runnerName: string;
+  avatarUrl: string | null;
   trustScore: number;
   totalCarries: number;
   storeName: string | null;
@@ -49,7 +50,7 @@ export default function RiderDetailsScreen() {
       .from('runner_posts')
       .select(
         `id, fee_per_order, max_orders, available_at, vehicle_type, note,
-         runner:runner_id ( id, name, trust_scores ( trust_score, total_carries ) ),
+         runner:runner_id ( id, name, avatar_url, trust_scores ( trust_score, total_carries ) ),
          store:store_id ( name ),
          dropoff:dropoff_id ( name )`
       )
@@ -67,6 +68,7 @@ export default function RiderDetailsScreen() {
         vehicle_type: row.vehicle_type,
         runnerId,
         runnerName: row.runner?.name || 'ไม่ทราบชื่อ',
+        avatarUrl: row.runner?.avatar_url || null,
         trustScore: row.runner?.trust_scores?.[0]?.trust_score ?? 100,
         totalCarries: row.runner?.trust_scores?.[0]?.total_carries ?? 0,
         storeName: row.store?.name ?? null,
@@ -97,7 +99,6 @@ export default function RiderDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 🛠️ ใช้ ScreenHeader กลาง พร้อมส่งปุ่ม 3 จุดเข้าทาง rightElement */}
       <ScreenHeader 
         title="รายละเอียดโพสต์" 
         rightElement={
@@ -115,9 +116,15 @@ export default function RiderDetailsScreen() {
         ) : (
           <>
             <View style={styles.profileSection}>
-              <View style={[styles.avatar, { backgroundColor: '#4A90E2' }]}>
-                <Text style={styles.avatarText}>{initials}</Text>
-              </View>
+              {/* แสดงรูปภาพโปรไฟล์ หรือ Fallback ไปที่ตัวย่อชื่อ */}
+              {post.avatarUrl ? (
+                <Image source={{ uri: post.avatarUrl }} style={styles.avatarImage} />
+              ) : (
+                <View style={[styles.avatar, { backgroundColor: '#4A90E2' }]}>
+                  <Text style={styles.avatarText}>{initials}</Text>
+                </View>
+              )}
+
               <Text style={styles.riderName}>คุณ {post.runnerName}</Text>
               <View style={styles.badge}><Text style={styles.badgeText}>Trust Score: {post.trustScore}</Text></View>
 
@@ -209,6 +216,7 @@ const styles = StyleSheet.create({
   emptySubtext: { textAlign: 'center', color: '#B0A498', fontSize: 13, paddingVertical: 10 },
   profileSection: { alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20 },
   avatar: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  avatarImage: { width: 76, height: 76, borderRadius: 38, backgroundColor: '#E8D5C4', marginBottom: 12 },
   avatarText: { color: '#FFFFFF', fontSize: 26, fontWeight: 'bold' },
   riderName: { fontSize: 18, fontWeight: 'bold', color: '#3A2113' },
   badge: { backgroundColor: '#E6F7ED', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, marginTop: 6, marginBottom: 16 },

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, FlatList, ActivityIndicator, Alert, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -11,6 +11,7 @@ import { ORDER_THEME } from '@/constants/OrderTheme';
 interface OpenRequest {
   id: number;
   requesterName: string;
+  avatarUrl: string | null;
   trustScore: number;
   storeName: string;
   dropoffName: string;
@@ -31,7 +32,7 @@ export default function OpenRequestsBoard() {
       .from('orders')
       .select(
         `id, fee, item_total, custom_dropoff_label,
-         requester:requester_id ( name, trust_scores ( trust_score ) ),
+         requester:requester_id ( name, avatar_url, trust_scores ( trust_score ) ),
          store:store_id ( name ),
          dropoff:dropoff_id ( name ),
          order_items ( item_name )`
@@ -45,6 +46,7 @@ export default function OpenRequestsBoard() {
         (data as any[]).map((row) => ({
           id: row.id,
           requesterName: row.requester?.name || 'ไม่ทราบชื่อ',
+          avatarUrl: row.requester?.avatar_url || null,
           trustScore: row.requester?.trust_scores?.[0]?.trust_score ?? 100,
           storeName: row.store?.name || 'ไม่ระบุร้าน',
           dropoffName: row.dropoff?.name || row.custom_dropoff_label || 'ไม่ระบุปลายทาง',
@@ -102,9 +104,14 @@ export default function OpenRequestsBoard() {
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{item.requesterName.slice(0, 2)}</Text>
-                </View>
+                {/* แสดงรูปโปรไฟล์ของผู้ส่งคำขอ หรือ fallback เป็นตัวย่อ */}
+                {item.avatarUrl ? (
+                  <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{item.requesterName.slice(0, 2)}</Text>
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.requesterName}>{item.requesterName}</Text>
                   <TrustScoreBadge score={item.trustScore} size="small" />
@@ -151,6 +158,12 @@ const styles = StyleSheet.create({
   avatar: {
     width: 36, height: 36, borderRadius: 18, backgroundColor: ORDER_THEME.info,
     alignItems: 'center', justifyContent: 'center',
+  },
+  avatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: ORDER_THEME.borderSoft,
   },
   avatarText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 12 },
   requesterName: { fontSize: 14, fontWeight: '700', color: ORDER_THEME.textPrimary, marginBottom: 4 },

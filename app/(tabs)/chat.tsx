@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -8,6 +8,7 @@ import { ORDER_THEME } from '@/constants/OrderTheme';
 interface ChatPreview {
   conversationId: number;
   name: string;
+  avatarUrl: string | null;
   message: string;
   timeLabel: string;
   avatarColor: string;
@@ -40,10 +41,10 @@ export default function ChatListScreen() {
     }
     const uid = userData.user.id;
 
-    // 1 คู่คนคุย = 1 ห้องแชท (conversation) เสมอ ไม่ว่าจะมีออเดอร์ร่วมกันกี่ครั้งก็ตาม
+    // 1 คู่คนคุย = 1 ห้องแชท ดึง name และ avatar_url ของ user_a และ user_b
     const { data: myConversations } = await supabase
       .from('conversations')
-      .select('id, user_a_id, user_b_id, a:user_a_id ( id, name ), b:user_b_id ( id, name )')
+      .select('id, user_a_id, user_b_id, a:user_a_id ( id, name, avatar_url ), b:user_b_id ( id, name, avatar_url )')
       .or(`user_a_id.eq.${uid},user_b_id.eq.${uid}`);
 
     if (!myConversations || myConversations.length === 0) {
@@ -70,6 +71,7 @@ export default function ChatListScreen() {
       previews.push({
         conversationId: msg.conversation_id,
         name: other?.name || 'ไม่ทราบชื่อ',
+        avatarUrl: other?.avatar_url || null,
         message: msg.content || '',
         timeLabel: timeAgo(msg.created_at),
         avatarColor: AVATAR_COLORS[previews.length % AVATAR_COLORS.length],
@@ -107,9 +109,14 @@ export default function ChatListScreen() {
                 onPress={() => router.push({ pathname: '/chat-detail/[id]', params: { id: String(chat.conversationId) } })}
                 activeOpacity={0.9}
               >
-                <View style={[styles.avatar, { backgroundColor: chat.avatarColor }]}>
-                  <Text style={styles.avatarText}>{chat.name.substring(0, 2)}</Text>
-                </View>
+                {/* แสดงรูปโปรไฟล์คู่สนทนา หรือใช้ตัวย่อชื่อ */}
+                {chat.avatarUrl ? (
+                  <Image source={{ uri: chat.avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: chat.avatarColor }]}>
+                    <Text style={styles.avatarText}>{chat.name.substring(0, 2)}</Text>
+                  </View>
+                )}
 
                 <View style={styles.chatInfo}>
                   <View style={styles.chatHeader}>
@@ -146,6 +153,7 @@ const styles = StyleSheet.create({
   },
   chatItemUnread: { backgroundColor: ORDER_THEME.surfaceSoft, borderColor: ORDER_THEME.accentSoft },
   avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avatarImage: { width: 46, height: 46, borderRadius: 23, backgroundColor: ORDER_THEME.borderSoft, flexShrink: 0 },
   avatarText: { color: ORDER_THEME.surface, fontWeight: 'bold', fontSize: 15 },
   chatInfo: { flex: 1, gap: 2 },
   chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },

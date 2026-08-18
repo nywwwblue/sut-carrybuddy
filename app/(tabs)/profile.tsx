@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -106,9 +106,15 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* ส่วนหัวแสดงรูปสัญลักษณ์ย่อ */}
+        {/* ส่วนหัวแสดงรูปโปรไฟล์ */}
         <View style={styles.profileHeader}>
-          <View style={styles.bigAvatar}><Text style={styles.bigAvatarText}>{profile?.name ? profile.name.trim().slice(0, 2) : '..'}</Text></View>
+          {profile?.avatar_url ? (
+            <Image source={{ uri: profile.avatar_url }} style={styles.bigAvatarImage} />
+          ) : (
+            <View style={styles.bigAvatar}>
+              <Text style={styles.bigAvatarText}>{profile?.name ? profile.name.trim().slice(0, 2) : '..'}</Text>
+            </View>
+          )}
           <Text style={styles.profileName}>{profile?.name || 'ผู้ใช้งาน SUT CarryBuddy'}</Text>
           <Text style={styles.profileDept}>{profile?.department || 'ยังไม่ได้ระบุสาขาวิชา'}</Text>
         </View>
@@ -139,7 +145,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ปุ่มเมนูเชื่อมต่อหน้าย่อยอื่นๆ (แยกตามโหมดการใช้งาน) */}
+        {/* ปุ่มเมนูเชื่อมต่อหน้าย่อยอื่นๆ */}
         <View style={styles.menuGroup}>
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/payment/wallet')}>
             <Ionicons name="wallet" size={20} color="#FF7A30" />
@@ -147,14 +153,12 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
 
-          {/* ถ้าเป็นฝั่งผู้ซื้อ (Requester) ให้แสดงเมนูประวัติคำขอฝากซื้อ */}
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/orders/my-requests' as any)}>
             <Ionicons name="receipt" size={20} color="#FF7A30" />
             <Text style={styles.menuText}>ประวัติคำขอฝากซื้อของฉัน</Text>
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
 
-          {/* ถ้าเป็นฝั่งคนรับหิ้ว (Runner) ให้แสดงเมนูจัดการโพสต์รับหิ้ว */}
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/runner/my-posts-management' as any)}>
             <Ionicons name="megaphone" size={20} color="#FF7A30" />
             <Text style={styles.menuText}>จัดการโพสต์รับหิ้วของฉัน</Text>
@@ -167,7 +171,6 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#C9BBAF" />
           </TouchableOpacity>
         </View>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -214,6 +217,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF7A30',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 8,
+  },
+  bigAvatarImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#E8D5C4',
     marginBottom: 8,
   },
   bigAvatarText: {

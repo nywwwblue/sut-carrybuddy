@@ -1,14 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { ScreenHeader } from '@/components/ScreenHeader'; // 👈 นำเข้า ScreenHeader กลาง
+import { ScreenHeader } from '@/components/ScreenHeader';
 
 interface ShoppingItem {
   id: string;
   orderId: string;
   ownerName: string;
+  avatarUrl: string | null;
   avatarColor: string;
   itemName: string;
   qty: number;
@@ -97,7 +98,7 @@ export default function ShoppingListScreen() {
             store:store_id ( name ),
             dropoff:dropoff_id ( name ),
             custom_dropoff_label,
-            requester:requester_id ( name )
+            requester:requester_id ( name, avatar_url )
           )
         `)
         .in('order_id', targetOrderIds);
@@ -115,6 +116,7 @@ export default function ShoppingListScreen() {
             id: String(row.id),
             orderId: String(row.order_id),
             ownerName: row.order?.requester?.name || 'ลูกค้า',
+            avatarUrl: row.order?.requester?.avatar_url || null,
             avatarColor: i % 2 === 0 ? '#4A90E2' : '#9B59B6',
             itemName: `${row.item_name} (${row.quantity} ชิ้น)`,
             qty: row.quantity,
@@ -177,7 +179,6 @@ export default function ShoppingListScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 🛠️ ใช้คอมโพเนนต์กลาง ScreenHeader แบบไร้แถบขาวกวนใจ */}
       <ScreenHeader title="ใบงานรวม Shopping List" subtitle="ตรวจสอบและอัปเดตสถานะรายการสินค้า" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -215,9 +216,14 @@ export default function ShoppingListScreen() {
                 onPress={() => router.push({ pathname: '/orders/order-detail', params: { orderId: item.orderId } } as any)}
                 activeOpacity={0.8}
               >
-                <View style={[styles.avatarCircle, { backgroundColor: item.avatarColor }]}>
-                  <Text style={styles.avatarText}>{item.ownerName.slice(0, 2)}</Text>
-                </View>
+                {/* แสดงรูปโปรไฟล์ของผู้สั่งซื้อ หรือ fallback เป็นตัวย่อ */}
+                {item.avatarUrl ? (
+                  <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <View style={[styles.avatarCircle, { backgroundColor: item.avatarColor }]}>
+                    <Text style={styles.avatarText}>{item.ownerName.slice(0, 2)}</Text>
+                  </View>
+                )}
 
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemText, item.isPicked && styles.itemTextCrossed]}>
@@ -310,6 +316,7 @@ const styles = StyleSheet.create({
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#D0C4B8', alignItems: 'center', justifyContent: 'center' },
   checkboxChecked: { backgroundColor: '#2ECC71', borderColor: '#2ECC71' },
   avatarCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#E8D5C4' },
   avatarText: { color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' },
   itemText: { fontSize: 13, fontWeight: '600', color: '#3A2113' },
   itemTextCrossed: { textDecorationLine: 'line-through', color: '#B0A498' },

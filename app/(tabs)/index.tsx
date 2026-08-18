@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -12,7 +12,7 @@ interface RunnerPostRow {
   fee_per_order: number;
   status: string;
   custom_origin_label: string | null;
-  runner: { name: string; id: string; trust_scores: { trust_score: number }[] } | null;
+  runner: { name: string; id: string; avatar_url: string | null; trust_scores: { trust_score: number }[] } | null;
   store: { name: string } | null;
   dropoff: { name: string } | null;
 }
@@ -20,6 +20,7 @@ interface RunnerPostRow {
 interface Rider {
   id: string;
   name: string;
+  avatarUrl: string | null;
   trustScore: number;
   status: string;
   distance: string;
@@ -47,7 +48,7 @@ export default function HomeScreen() {
   const [ridersList, setRidersList] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. เพิ่ม State สำหรับควบคุมโมดอลอธิบายขั้นตอน Flash Buy 1-4
+  // 1. State ควบคุมโมดอล Flash Buy
   const [introVisible, setIntroVisible] = useState(false);
 
   const loadFlashSession = useCallback(async () => {
@@ -105,7 +106,7 @@ export default function HomeScreen() {
       .from('runner_posts')
       .select(
         `id, post_type, fee_per_order, status, custom_origin_label,
-         runner:runner_id ( id, name, trust_scores ( trust_score ) ),
+         runner:runner_id ( id, name, avatar_url, trust_scores ( trust_score ) ),
          store:store_id ( name ),
          dropoff:dropoff_id ( name )`
       )
@@ -125,6 +126,7 @@ export default function HomeScreen() {
         rows.map((row, i) => ({
           id: String(row.id),
           name: row.runner?.name || 'ไม่ทราบชื่อ',
+          avatarUrl: row.runner?.avatar_url || null,
           trustScore: row.runner?.trust_scores?.[0]?.trust_score ?? 100,
           status: row.status === 'open' ? 'เปิดรับฝาก' : row.status,
           distance: row.custom_origin_label || row.store?.name || 'ไม่ระบุต้นทาง',
@@ -199,7 +201,7 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Flash Buy Banner - ปรับการคลิกให้มาเปิดโมดอลแนะนำตัว 1-4 ก่อน */}
+        {/* Flash Buy Banner */}
         {flashSession && (
           <TouchableOpacity
             style={styles.flashBuyBanner}
@@ -255,11 +257,17 @@ export default function HomeScreen() {
             ridersList.map(rider => (
               <TouchableOpacity key={rider.id} style={styles.riderCard} onPress={() => router.push({ pathname: '/rider-details', params: { postId: rider.id } })} activeOpacity={0.8}>
                 <View style={styles.riderHeader}>
-                  <View style={[styles.avatar, { backgroundColor: rider.avatarColor }]}>
-                    <Text style={styles.avatarText}>
-                      {rider.name.substring(0, 2)}
-                    </Text>
-                  </View>
+                  {/* แสดงรูปโปรไฟล์ ถ้าไม่มีให้แสดงชื่อย่อ */}
+                  {rider.avatarUrl ? (
+                    <Image source={{ uri: rider.avatarUrl }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: rider.avatarColor }]}>
+                      <Text style={styles.avatarText}>
+                        {rider.name.substring(0, 2)}
+                      </Text>
+                    </View>
+                  )}
+
                   <View style={styles.riderInfo}>
                     <View style={styles.riderNameRow}>
                       <Text style={styles.riderName}>คุณ {rider.name}</Text>
@@ -294,7 +302,7 @@ export default function HomeScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* 2. ผูกคอมโพเนนต์ Bottom Sheet แสดงขั้นตอน 1-4 ไว้ล่างสุดนอก ScrollView เพื่อลอยทับสวยงาม */}
+      {/* โมดอล Flash Buy Intro */}
       {flashSession && (
         <FlashBuyIntroModal
           visible={introVisible}
@@ -500,6 +508,12 @@ const styles = StyleSheet.create({
     borderRadius: 20, 
     alignItems: 'center', 
     justifyContent: 'center' 
+  },
+  avatarImage: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: '#E8D5C4' 
   },
   avatarText: { 
     color: '#FFFFFF', 

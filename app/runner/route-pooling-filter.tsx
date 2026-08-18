@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/EmptyState';
 interface PendingOrder {
   id: number;
   requesterName: string;
+  avatarUrl: string | null;
   itemSummary: string;
   fee: number;
   dropoffName: string;
@@ -37,7 +38,7 @@ export default function RoutePoolingFilter() {
     const { data } = await supabase
       .from('orders')
       .select(
-        `id, fee, requester:requester_id ( name ), order_items ( item_name ),
+        `id, fee, requester:requester_id ( name, avatar_url ), order_items ( item_name ),
          post:post_id ( dropoff:dropoff_id ( name ) )`
       )
       .eq('runner_id', userData.user.id)
@@ -48,6 +49,7 @@ export default function RoutePoolingFilter() {
       const rows = (data as any[]).map((row) => ({
         id: row.id,
         requesterName: row.requester?.name || 'ไม่ทราบชื่อ',
+        avatarUrl: row.requester?.avatar_url || null,
         itemSummary: row.order_items?.[0]?.item_name
           ? `${row.order_items[0].item_name}${row.order_items.length > 1 ? ` +${row.order_items.length - 1}` : ''}`
           : 'ไม่มีรายการ',
@@ -133,9 +135,13 @@ export default function RoutePoolingFilter() {
 
               {group.orders.map((order, i) => (
                 <View key={order.id} style={styles.orderRow}>
-                  <View style={[styles.avatar, { backgroundColor: i % 2 === 0 ? '#4A90E2' : '#50C878' }]}>
-                    <Text style={styles.avatarText}>{order.requesterName.slice(0, 2)}</Text>
-                  </View>
+                  {order.avatarUrl ? (
+                    <Image source={{ uri: order.avatarUrl }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: i % 2 === 0 ? '#4A90E2' : '#50C878' }]}>
+                      <Text style={styles.avatarText}>{order.requesterName.slice(0, 2)}</Text>
+                    </View>
+                  )}
                   <Text style={styles.orderText}>
                     {order.requesterName} — {order.itemSummary}
                   </Text>
@@ -156,9 +162,13 @@ export default function RoutePoolingFilter() {
           {visibleGroups.flatMap((g) => g.orders).map((order) => (
             <View key={order.id} style={styles.individualCard}>
               <View style={styles.individualRow}>
-                <View style={[styles.avatar, { backgroundColor: '#4A90E2' }]}>
-                  <Text style={styles.avatarText}>{order.requesterName.slice(0, 2)}</Text>
-                </View>
+                {order.avatarUrl ? (
+                  <Image source={{ uri: order.avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: '#4A90E2' }]}>
+                    <Text style={styles.avatarText}>{order.requesterName.slice(0, 2)}</Text>
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.orderText, { fontWeight: 'bold', color: '#3A2113' }]}>คุณ {order.requesterName}</Text>
                   <Text style={styles.individualItem}>{order.itemSummary}</Text>
@@ -289,6 +299,12 @@ const styles = StyleSheet.create({
     borderRadius: 16, 
     alignItems: 'center', 
     justifyContent: 'center' 
+  },
+  avatarImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E8D5C4',
   },
   avatarText: { 
     color: '#FFFFFF', 
