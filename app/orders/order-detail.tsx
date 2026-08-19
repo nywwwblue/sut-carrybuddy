@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ORDER_THEME } from '@/constants/OrderTheme';
@@ -173,7 +174,6 @@ function canTransitionTo(currentStatus: string, nextStatus: string) {
   return (ALLOWED_TRANSITIONS[currentStatus] || []).includes(nextStatus);
 }
 
-// 📑 หัวข้อข้อพิพาทสำหรับฝั่งไรเดอร์
 const RUNNER_DISPUTE_REASONS = [
   'ลูกค้าปฏิเสธการรับสินค้า / ตีกลับออเดอร์',
   'ลูกค้าไม่ชำระเงิน (กรณีเก็บเงินปลายทาง - COD)',
@@ -184,7 +184,6 @@ const RUNNER_DISPUTE_REASONS = [
   'อื่นๆ (ระบุรายละเอียดเพิ่มเติม)',
 ];
 
-// 📑 หัวข้อข้อพิพาทสำหรับฝั่งคนฝากหิ้ว (ลูกค้า)
 const REQUESTER_DISPUTE_REASONS = [
   'ไม่ได้รับสินค้า / ไรเดอร์ไม่มาส่งตามเวลา',
   'สินค้าแตกหัก / เสียหายจากการขนส่ง (ขอเคลม)',
@@ -211,6 +210,7 @@ interface OrderDetail {
   requester_id: string;
   runner_id: string | null;
   otherPartyName: string;
+  otherPartyAvatar: string | null;
   otherPartyTrust: number;
   items: { item_name: string; quantity: number }[];
   dropoffLabel: string | null;
@@ -238,6 +238,10 @@ export default function OrderDetailScreen() {
   const [proofs, setProofs] = useState<ProofItem[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+
+  // 💵 State สำหรับ Modal กรอกราคาสินค้าจริง
+  const [priceModalVisible, setPriceModalVisible] = useState(false);
+  const [actualTotalInput, setActualTotalInput] = useState('');
 
   // 📝 State สำหรับ Modal รายงานปัญหา / ข้อพิพาท
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
@@ -279,50 +283,118 @@ export default function OrderDetailScreen() {
       const uid = userData.user?.id ?? null;
       setMyUserId(uid);
 
-      const { data, error } = await supabase
+      // 1. ดึงข้อมูลออเดอร์
+      const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select(
-          `id, status, payment_mode, item_total, fee, requester_id, runner_id, created_at,
+          `id, status, payment_mode, item_total, fee, requester_id, runner_id, post_id, store_id, dropoff_id, created_at,
            custom_store_lat, custom_store_lng, custom_store_label,
            custom_dropoff_lat, custom_dropoff_lng, custom_dropoff_label,
-           order_items ( item_name, quantity ),
-           store:store_id ( name, lat, lng ),
-           dropoff:dropoff_id ( name, lat, lng )`
+           order_items ( item_name, quantity )`
         )
         .eq('id', orderId)
         .single();
 
-      if (error) throw error;
-      if (!data) throw new Error('ไม่พบออเดอร์นี้');
+      if (orderError) throw orderError;
+      if (!orderData) throw new Error('ไม่พบออเดอร์นี้');
 
-      const row = data as any;
+      const row = orderData as any;
       const reqId = row.requester_id ? String(row.requester_id).trim() : '';
       const runId = row.runner_id ? String(row.runner_id).trim() : null;
 
+      let resolvedStoreName: string | null = null;
+      let resolvedStoreLat: number | null = null;
+      let resolvedStoreLng: number | null = null;
+
+      // กรองค่า custom_store_label ถ้าไม่ใช่คำว่า "ร้านค้า"
+      if (row.custom_store_label && row.custom_store_label.trim() !== 'ร้านค้า') {
+        resolvedStoreName = row.custom_store_label.trim();
+        resolvedStoreLat = row.custom_store_lat ? Number(row.custom_store_lat) : null;
+        resolvedStoreLng = row.custom_store_lng ? Number(row.custom_store_lng) : null;
+      }
+
+      // 2. ถ้ายังไม่ได้ชื่อร้าน และมี store_id ใน orders ให้ดึงจากตาราง stores ตรงๆ
+      if (!resolvedStoreName && row.store_id) {
+        const { data: sData } = await supabase
+          .from('stores')
+          .select('name, lat, lng')
+          .eq('id', row.store_id)
+          .single();
+
+        if (sData) {
+          resolvedStoreName = sData.name;
+          resolvedStoreLat = sData.lat ? Number(sData.lat) : resolvedStoreLat;
+          resolvedStoreLng = sData.lng ? Number(sData.lng) : resolvedStoreLng;
+        }
+      }
+
+      // 3. ถ้ายังไม่ได้ชื่อร้าน ให้ดึงจาก runner_posts ผ่าน post_id
+      if (!resolvedStoreName && row.post_id) {
+        const { data: postData } = await supabase
+          .from('runner_posts')
+          .select('store_id, custom_origin_label, custom_origin_lat, custom_origin_lng')
+          .eq('id', row.post_id)
+          .single();
+
+        if (postData) {
+          if (postData.custom_origin_label && postData.custom_origin_label.trim() !== 'ร้านค้า') {
+            resolvedStoreName = postData.custom_origin_label.trim();
+            resolvedStoreLat = postData.custom_origin_lat ? Number(postData.custom_origin_lat) : resolvedStoreLat;
+            resolvedStoreLng = postData.custom_origin_lng ? Number(postData.custom_origin_lng) : resolvedStoreLng;
+          } else if (postData.store_id) {
+            const { data: pStoreData } = await supabase
+              .from('stores')
+              .select('name, lat, lng')
+              .eq('id', postData.store_id)
+              .single();
+
+            if (pStoreData) {
+              resolvedStoreName = pStoreData.name;
+              resolvedStoreLat = pStoreData.lat ? Number(pStoreData.lat) : resolvedStoreLat;
+              resolvedStoreLng = pStoreData.lng ? Number(pStoreData.lng) : resolvedStoreLng;
+            }
+          }
+        }
+      }
+
+      // 4. ดึงข้อมูลจุดส่งปลายทาง (Dropoff)
+      let resolvedDropoffName: string | null = row.custom_dropoff_label || null;
+      let resolvedDropoffLat: number | null = row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
+      let resolvedDropoffLng: number | null = row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
+
+      if (row.dropoff_id) {
+        const { data: dData } = await supabase
+          .from('dropoff_locations')
+          .select('name, lat, lng')
+          .eq('id', row.dropoff_id)
+          .single();
+
+        if (dData) {
+          resolvedDropoffName = dData.name;
+          resolvedDropoffLat = dData.lat ? Number(dData.lat) : resolvedDropoffLat;
+          resolvedDropoffLng = dData.lng ? Number(dData.lng) : resolvedDropoffLng;
+        }
+      }
+
+      // 5. ดึงข้อมูลโปรไฟล์คู่สนทนา
       const isRunnerUser = uid && runId && String(uid).trim() === runId;
       const otherUserId = isRunnerUser ? reqId : runId;
       let otherName = 'ไม่ทราบชื่อ';
+      let otherAvatar: string | null = null;
       let otherTrust = 100;
 
       if (otherUserId) {
         const { data: otherUser } = await supabase
           .from('users')
-          .select('name, trust_scores(trust_score)')
+          .select('name, avatar_url, trust_scores(trust_score)')
           .eq('id', otherUserId)
           .single();
         if (otherUser) {
           otherName = otherUser.name || 'ไม่ทราบชื่อ';
+          otherAvatar = otherUser.avatar_url || null;
           otherTrust = (otherUser as any).trust_scores?.[0]?.trust_score ?? 100;
         }
       }
-
-      const storeLat = row.store?.lat ? Number(row.store.lat) : row.custom_store_lat ? Number(row.custom_store_lat) : null;
-      const storeLng = row.store?.lng ? Number(row.store.lng) : row.custom_store_lng ? Number(row.custom_store_lng) : null;
-      const storeLabel = row.store?.name || row.custom_store_label || 'ร้านค้า';
-
-      const dropoffLat = row.dropoff?.lat ? Number(row.dropoff.lat) : row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
-      const dropoffLng = row.dropoff?.lng ? Number(row.dropoff.lng) : row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
-      const dropoffLabel = row.dropoff?.name || row.custom_dropoff_label || 'จุดส่งของ';
 
       setOrder({
         id: row.id,
@@ -333,14 +405,15 @@ export default function OrderDetailScreen() {
         requester_id: reqId,
         runner_id: runId,
         otherPartyName: otherName,
+        otherPartyAvatar: otherAvatar,
         otherPartyTrust: otherTrust,
         items: row.order_items || [],
-        dropoffLabel,
-        storeLat,
-        storeLng,
-        storeLabel,
-        dropoffLat,
-        dropoffLng,
+        dropoffLabel: resolvedDropoffName || 'จุดส่งของ',
+        dropoffLat: resolvedDropoffLat,
+        dropoffLng: resolvedDropoffLng,
+        storeLabel: resolvedStoreName || 'ไม่ได้ระบุชื่อร้านค้า',
+        storeLat: resolvedStoreLat,
+        storeLng: resolvedStoreLng,
         created_at: row.created_at,
       } as any);
 
@@ -404,7 +477,7 @@ export default function OrderDetailScreen() {
     };
   }, [isRunner, order?.status, order?.id]);
 
-  // 📸 ฟังก์ชันถ่ายรูป / อัปโหลดหลักฐานส่งของ
+  // 📸 ฟังก์ชันถ่ายรูป / อัปโหลดหลักฐานส่งของแบบ Base64
   const handlePickAndUploadProof = async () => {
     if (!order) return;
 
@@ -419,10 +492,11 @@ export default function OrderDetailScreen() {
           }
           const res = await ImagePicker.launchCameraAsync({
             mediaTypes: ['images'],
-            quality: 0.5,
+            quality: 0.6,
+            base64: true,
           });
           if (!res.canceled && res.assets[0]?.uri) {
-            uploadProofImage(res.assets[0].uri);
+            uploadProofImage(res.assets[0].uri, res.assets[0].base64);
           }
         },
       },
@@ -431,10 +505,11 @@ export default function OrderDetailScreen() {
         onPress: async () => {
           const res = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
-            quality: 0.5,
+            quality: 0.6,
+            base64: true,
           });
           if (!res.canceled && res.assets[0]?.uri) {
-            uploadProofImage(res.assets[0].uri);
+            uploadProofImage(res.assets[0].uri, res.assets[0].base64);
           }
         },
       },
@@ -442,38 +517,34 @@ export default function OrderDetailScreen() {
     ]);
   };
 
-  const uploadProofImage = async (uri: string) => {
+  const uploadProofImage = async (uri: string, base64Data?: string | null) => {
     if (!order) return;
     setUploadingImage(true);
 
     try {
-      const fileExt = uri.split('.').pop() || 'jpg';
+      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `proof_${order.id}_${Date.now()}.${fileExt}`;
+      const contentType = `image/${fileExt === 'png' ? 'png' : 'jpeg'}`;
 
-      const formData = new FormData();
-      formData.append('file', {
-        uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri,
-        name: fileName,
-        type: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
-      } as any);
+      if (!base64Data) {
+        throw new Error('ไม่พบข้อมูลภาพ Base64');
+      }
 
-      // 1. อัปโหลดเข้า Supabase Storage
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('proof_images')
-        .upload(fileName, formData, {
+        .upload(fileName, decode(base64Data), {
+          contentType,
           upsert: true,
         });
 
       if (uploadError) throw new Error(`Storage Error: ${uploadError.message}`);
 
-      // 2. ดึง Public URL ของรูปภาพ
       const { data: publicUrlData } = supabase.storage
         .from('proof_images')
         .getPublicUrl(fileName);
 
       const finalUrl = publicUrlData.publicUrl;
 
-      // 3. บันทึกลงตาราง proof_of_purchases
       const { error: insertError } = await supabase
         .from('proof_of_purchases')
         .insert({
@@ -492,6 +563,31 @@ export default function OrderDetailScreen() {
     } finally {
       setUploadingImage(false);
     }
+  };
+
+  // 💵 ฟังก์ชันอัปเดตราคาสินค้าจริง
+  const handleUpdateActualItemTotal = async () => {
+    const newTotal = parseFloat(actualTotalInput);
+    if (isNaN(newTotal) || newTotal < 0) {
+      Alert.alert('กรุณากรอกราคาให้ถูกต้อง');
+      return;
+    }
+
+    if (!order) return;
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ item_total: newTotal })
+      .eq('id', order.id);
+
+    if (error) {
+      Alert.alert('อัปเดตไม่สำเร็จ', error.message);
+      return;
+    }
+
+    setOrder(prev => prev ? { ...prev, item_total: newTotal } : null);
+    setPriceModalVisible(false);
+    Alert.alert('สำเร็จ', `อัปเดตราคาสินค้าจริงเป็น ฿${newTotal.toFixed(0)} เรียบร้อย`);
   };
 
   const currentStepIndex = order ? STEP_ORDER.indexOf(order.status) : -1;
@@ -539,9 +635,14 @@ export default function OrderDetailScreen() {
         const { error } = await supabase.rpc('release_escrow_and_complete', { p_order_id: order.id });
         if (error) throw error;
       } else {
+        const updatePayload: any = { status: newStatus };
+        if (newStatus === 'completed') {
+          updatePayload.completed_at = new Date().toISOString();
+        }
+
         const { error: updateError } = await supabase
           .from('orders')
-          .update({ status: newStatus })
+          .update(updatePayload)
           .eq('id', order.id);
 
         if (updateError) throw updateError;
@@ -618,7 +719,6 @@ export default function OrderDetailScreen() {
     ]);
   };
 
-  // 🚨 ส่งข้อมูลคำร้องข้อพิพาทเข้าตาราง dispute_reports
   const submitDisputeReport = async () => {
     if (!order || !selectedReason) {
       Alert.alert('กรุณาเลือกสาเหตุ', 'โปรดเลือกหัวข้อปัญหาที่ท่านพบ');
@@ -754,7 +854,6 @@ export default function OrderDetailScreen() {
         {/* 📡 1. มุมมองฝั่งคนฝากหิ้ว (REQUESTER) */}
         {isRequester && order.status !== 'disputed' && (
           <View style={{ marginVertical: 4 }}>
-            {/* LIVE TRACKING */}
             {order.status === 'delivering' && (
               <LiveTrackingCard
                 orderId={order.id}
@@ -763,7 +862,6 @@ export default function OrderDetailScreen() {
               />
             )}
 
-            {/* 📸 ปุ่มดูหลักฐานการจัดส่ง (จะขึ้นเมื่อสถานะเป็น completed และมีรูปภาพ) */}
             {order.status === 'completed' && proofs.length > 0 && (
               <TouchableOpacity 
                 style={styles.proofFullButton}
@@ -774,14 +872,12 @@ export default function OrderDetailScreen() {
               </TouchableOpacity>
             )}
 
-            {/* ปุ่มยกเลิกออเดอร์ */}
             {order.status === 'pending' && (
               <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={updating}>
                 <Text style={styles.cancelBtnText}>ยกเลิกออเดอร์นี้</Text>
               </TouchableOpacity>
             )}
 
-            {/* ปุ่มให้คะแนนผู้รับหิ้ว */}
             {order.status === 'completed' && (
               <TouchableOpacity style={styles.rateBtn} onPress={() => router.push({ pathname: '/rate-rider', params: { orderId: order.id, runnerId: order.runner_id || '' } })}>
                 <Ionicons name="star" size={18} color="#FFFFFF" />
@@ -794,7 +890,6 @@ export default function OrderDetailScreen() {
         {/* 🛵 2. มุมมองฝั่งคนรับหิ้ว (RUNNER) */}
         {isRunner && order.status !== 'disputed' && (
           <View style={{ marginVertical: 4 }}>
-            {/* ศูนย์นำทาง GPS */}
             {order.status !== 'completed' && order.status !== 'cancelled' && (
               <View style={styles.navSection}>
                 <Text style={styles.navSectionTitle}>ศูนย์นำทาง (GPS Navigation)</Text>
@@ -818,7 +913,7 @@ export default function OrderDetailScreen() {
               </View>
             )}
 
-            {/* 📸 ปุ่มเดี่ยว: "หลักฐานการจัดส่งสินค้า" (ขึ้นเฉพาะตอนกำลังเดินทาง) */}
+            {/* 📸 ปุ่มเดี่ยว: "หลักฐานการจัดส่งสินค้า" */}
             {order.status === 'delivering' && (
               <View style={styles.runnerProofBox}>
                 {proofs.length === 0 ? (
@@ -866,7 +961,7 @@ export default function OrderDetailScreen() {
                 </View>
                 <View style={styles.codAmount}>
                   <Text style={styles.codLabel}>ยอดที่ต้องรับ</Text>
-                  <Text style={styles.codValue}>฿{order.fee.toFixed(0)}</Text>
+                  <Text style={styles.codValue}>฿{(order.item_total + order.fee).toFixed(0)}</Text>
                 </View>
                 <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmCOD} disabled={updating}>
                   {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmButtonText}>ยืนยันการรับเงิน</Text>}
@@ -876,7 +971,7 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* Items */}
+        {/* Items Card */}
         <View style={styles.itemsCard}>
           {!!order.storeLabel && (
             <View style={[styles.dropoffRow, { backgroundColor: '#FFF3EB' }]}>
@@ -890,21 +985,63 @@ export default function OrderDetailScreen() {
               <Text style={styles.dropoffText}>ส่งที่: {order.dropoffLabel}</Text>
             </View>
           )}
+          
           <Text style={styles.itemsTitle}>รายการสินค้า</Text>
           {order.items.map((it, i) => (
             <Text key={i} style={styles.itemLine}>• {it.item_name} ×{it.quantity}</Text>
           ))}
+          
           <View style={styles.divider} />
+          
+          {/* ช่องแสดง/แก้ไขราคาสินค้าจริง */}
           <View style={styles.itemsTotalRow}>
-            <Text style={styles.itemsTotalLabel}>รวม (สินค้า + ค่าหิ้ว)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.itemsTotalLabel}>ค่าสินค้าจริง</Text>
+              {isRunner && order.status !== 'completed' && (
+                <TouchableOpacity 
+                  onPress={() => {
+                    setActualTotalInput(String(order.item_total));
+                    setPriceModalVisible(true);
+                  }}
+                  style={styles.editPriceChip}
+                >
+                  <Ionicons name="pencil" size={12} color="#FF7A30" />
+                  <Text style={styles.editPriceChipText}>แก้ไข</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={[styles.itemsTotalValue, { color: '#3A2113', fontSize: 16 }]}>฿{order.item_total.toFixed(0)}</Text>
+          </View>
+
+          <View style={[styles.itemsTotalRow, { marginTop: 4 }]}>
+            <Text style={styles.itemsTotalLabel}>ค่าหิ้ว</Text>
+            <Text style={[styles.itemsTotalValue, { color: '#3A2113', fontSize: 16 }]}>฿{order.fee.toFixed(0)}</Text>
+          </View>
+
+          <View style={[styles.itemsTotalRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#F5EBE1' }]}>
+            <Text style={[styles.itemsTotalLabel, { fontWeight: 'bold', color: '#3A2113' }]}>ยอดรวมสุทธิ</Text>
             <Text style={styles.itemsTotalValue}>฿{(order.item_total + order.fee).toFixed(0)}</Text>
           </View>
         </View>
 
-        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner */}
-        {isRunner && order.status !== 'disputed' && currentStepIndex >= 0 && currentStepIndex < STEP_ORDER.length - 1 && !(order.payment_mode === 'cod' && order.status === 'delivering') && (
-          <TouchableOpacity style={styles.advanceBtn} onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} disabled={updating}>
-            {updating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.advanceBtnText}>อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}</Text>}
+        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner (เปิดให้กดได้ทุกสถานะจนจบงาน) */}
+        {isRunner && 
+        order.status !== 'disputed' && 
+        currentStepIndex >= 0 && 
+        currentStepIndex < STEP_ORDER.length - 1 && 
+        !(order.payment_mode === 'cod' && order.status === 'delivering') && (
+          <TouchableOpacity 
+            style={styles.advanceBtn} 
+            onPress={() => updateStatus(STEP_ORDER[currentStepIndex + 1])} 
+            disabled={updating}
+          >
+            {updating ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.advanceBtnText}>
+                อัปเดตเป็น: {STEP_LABELS[STEP_ORDER[currentStepIndex + 1]]}
+              </Text>
+            )}
           </TouchableOpacity>
         )}
 
@@ -938,9 +1075,13 @@ export default function OrderDetailScreen() {
         {/* Other party Info */}
         <View style={styles.riderSection}>
           <View style={styles.riderCard}>
-            <View style={[styles.riderAvatar, { backgroundColor: '#4A90E2' }]}>
-              <Text style={styles.riderAvatarText}>{order.otherPartyName.slice(0, 2)}</Text>
-            </View>
+            {order.otherPartyAvatar ? (
+              <Image source={{ uri: order.otherPartyAvatar }} style={styles.riderAvatarImage} />
+            ) : (
+              <View style={[styles.riderAvatar, { backgroundColor: '#4A90E2' }]}>
+                <Text style={styles.riderAvatarText}>{order.otherPartyName.slice(0, 2)}</Text>
+              </View>
+            )}
             <View style={styles.riderInfo}>
               <Text style={styles.riderName}>{order.otherPartyName}</Text>
               <Text style={styles.riderTrust}>Trust {order.otherPartyTrust}</Text>
@@ -987,6 +1128,35 @@ export default function OrderDetailScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
+      {/* 💵 Modal แก้ไขราคาสินค้าจริง (เพิ่ม KeyboardAvoidingView + ปรับให้ลอยพ้นคีย์บอร์ด) */}
+      <Modal visible={priceModalVisible} transparent animationType="fade">
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlayCenter}
+        >
+          <View style={styles.priceModalContent}>
+            <Text style={styles.modalTitle}>ระบุราคาสินค้ารวมจริง</Text>
+            <Text style={styles.modalSubtitle}>กรอกราคาสินค้าที่ซื้อมาจริงตามใบเสร็จ</Text>
+            <TextInput
+              style={[styles.modalInput, { fontSize: 22, textAlign: 'center', fontWeight: 'bold', minHeight: 52 }]}
+              keyboardType="numeric"
+              value={actualTotalInput}
+              onChangeText={setActualTotalInput}
+              placeholder="0.00"
+              autoFocus={true}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setPriceModalVisible(false)}>
+                <Text style={styles.modalCancelText}>ยกเลิก</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalSubmitBtn, { backgroundColor: '#FF7A30' }]} onPress={handleUpdateActualItemTotal}>
+                <Text style={styles.modalSubmitText}>บันทึกราคา</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* 🖼️ Modal แสดงภาพหลักฐานขนาดใหญ่ */}
       <Modal visible={!!viewingImage} transparent={true} animationType="fade">
         <View style={styles.imageViewerOverlay}>
@@ -999,7 +1169,7 @@ export default function OrderDetailScreen() {
         </View>
       </Modal>
 
-      {/* 🛑 Modal รวมหัวข้อการรายงานปัญหา */}
+      {/* 🛑 Modal รวมหัวข้อการรายงานปัญหา (ใส่ keyboardVerticalOffset ให้เลื่อนหลบคีย์บอร์ด) */}
       <Modal
         visible={disputeModalVisible}
         transparent={true}
@@ -1008,6 +1178,7 @@ export default function OrderDetailScreen() {
       >
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
           style={styles.modalOverlay}
         >
           <View style={styles.modalContent}>
@@ -1021,7 +1192,7 @@ export default function OrderDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 360 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
               <Text style={styles.modalSubtitle}>เลือกหัวข้อปัญหาที่พบ:</Text>
               {disputeReasons.map((reason, index) => {
                 const isSelected = selectedReason === reason;
@@ -1408,6 +1579,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: ORDER_THEME.accent
   },
+  editPriceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#FFF3EB',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FFE0C7',
+  },
+  editPriceChipText: {
+    fontSize: 11,
+    color: '#FF7A30',
+    fontWeight: 'bold',
+  },
   advanceBtn: {
     marginHorizontal: 16,
     marginBottom: 16,
@@ -1591,6 +1778,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
+  riderAvatarImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: ORDER_THEME.borderSoft,
+  },
   riderAvatarText: {
     color: '#FFFFFF',
     fontSize: 15,
@@ -1733,5 +1926,24 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 15,
+  },
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  priceModalContent: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
   },
 });

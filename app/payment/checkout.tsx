@@ -14,10 +14,19 @@ export default function Checkout() {
 
   const postId = params.postId ? Number(params.postId) : null;
   const runnerId = params.runnerId as string | undefined;
+  
+  // 🏪 ดึงข้อมูลร้านค้าจาก params
+  const storeId = params.storeId ? Number(params.storeId) : null;
+  const customStoreLabel = (params.customStoreLabel as string) || null;
+  const customStoreLat = params.customStoreLat ? Number(params.customStoreLat) : null;
+  const customStoreLng = params.customStoreLng ? Number(params.customStoreLng) : null;
+
+  // 📍 ดึงข้อมูลจุดส่งปลายทาง
   const dropoffId = params.dropoffId ? Number(params.dropoffId) : null;
   const customDropoff: { lat: number; lng: number; label: string } | null = params.customDropoff
     ? JSON.parse(params.customDropoff as string)
     : null;
+
   const fee = Number(params.fee || 0);
   const itemTotal = Number(params.itemTotal || 0);
   const note = (params.note as string) || '';
@@ -73,6 +82,8 @@ export default function Checkout() {
     }
 
     let createdOrderId: number | null = null;
+    
+    // 💾 บันทึกข้อมูลออเดอร์ลงตาราง orders พร้อมพิกัดร้านค้าและจุดส่งครบถ้วน
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -83,6 +94,10 @@ export default function Checkout() {
         item_total: itemTotal,
         fee,
         status: 'pending',
+        store_id: storeId,
+        custom_store_label: customStoreLabel,
+        custom_store_lat: customStoreLat,
+        custom_store_lng: customStoreLng,
         dropoff_id: dropoffId,
         custom_dropoff_lat: customDropoff?.lat ?? null,
         custom_dropoff_lng: customDropoff?.lng ?? null,

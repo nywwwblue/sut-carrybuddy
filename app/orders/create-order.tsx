@@ -20,6 +20,13 @@ export default function CreateOrder() {
   const fee = params.fee ? Number(params.fee) : 15;
 
   const [locationName, setLocationName] = useState('กำลังโหลดพิกัด...');
+  const [storeData, setStoreData] = useState<{
+    storeId: number | null;
+    label: string | null;
+    lat: number | null;
+    lng: number | null;
+  }>({ storeId: null, label: null, lat: null, lng: null });
+
   const [dropoff, setDropoff] = useState<PickedLocation | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [items, setItems] = useState<EditableItem[]>([{ name: '', quantity: '1', price: '' }]);
@@ -28,18 +35,28 @@ export default function CreateOrder() {
 
   const itemTotal = calcItemTotal(items);
 
-  // ดึงหัวข้อสถานที่ต้นทางจากประกาศโพสต์ (รองรับทั้ง Custom Label และ Preset ID)
+  // ดึงข้อมูลร้านค้าและพิกัดต้นทางจากประกาศโพสต์ (runner_posts)
   useEffect(() => {
     if (!postId) return;
     supabase
       .from('runner_posts')
-      .select('custom_origin_label, store:store_id ( name )')
+      .select('store_id, custom_origin_label, custom_origin_lat, custom_origin_lng, store:store_id ( name, lat, lng )')
       .eq('id', postId)
       .single()
       .then(({ data, error }) => {
         if (!error && data) {
           const row = data as any;
-          setLocationName(row.custom_origin_label || row.store?.name || 'พิกัดร้านค้าด่วน');
+          const name = row.custom_origin_label || row.store?.name || 'พิกัดร้านค้าทั่วไป';
+          const lat = row.custom_origin_lat ? Number(row.custom_origin_lat) : (row.store?.lat ? Number(row.store.lat) : null);
+          const lng = row.custom_origin_lng ? Number(row.custom_origin_lng) : (row.store?.lng ? Number(row.store.lng) : null);
+
+          setLocationName(name);
+          setStoreData({
+            storeId: row.store_id || null,
+            label: name,
+            lat,
+            lng,
+          });
         } else {
           setLocationName('ร้านค้าพิกัดทั่วไป');
         }
@@ -62,12 +79,17 @@ export default function CreateOrder() {
       return;
     }
 
+    // ส่งข้อมูลร้านค้า พิกัด และจุดส่ง ต่อไปยังหน้า Checkout
     router.push({
       pathname: '/payment/checkout',
       params: {
         postId,
         runnerId,
-        dropoffId: dropoff.type === 'preset' ? dropoff.id : '',
+        storeId: storeData.storeId ? String(storeData.storeId) : '',
+        customStoreLabel: storeData.label || '',
+        customStoreLat: storeData.lat ? String(storeData.lat) : '',
+        customStoreLng: storeData.lng ? String(storeData.lng) : '',
+        dropoffId: dropoff.type === 'preset' ? String(dropoff.id) : '',
         customDropoff: dropoff.type === 'custom' ? JSON.stringify(dropoff) : '',
         fee: String(fee),
         itemTotal: String(itemTotal),
