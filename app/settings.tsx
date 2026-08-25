@@ -66,6 +66,11 @@ export default function Settings() {
             <Text style={styles.menuLabel}>เปลี่ยนรหัสผ่าน</Text>
             <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
           </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/mfa-setup')}>
+            <Ionicons name="shield-checkmark" size={24} color="#FF7A30" />
+            <Text style={styles.menuLabel}>ยืนยันตัวตนสองขั้นตอน (2FA)</Text>
+            <Ionicons name="chevron-forward" size={20} color="#8B7E74" />
+          </TouchableOpacity>
         </View>
 
         {/* Notification Settings */}
