@@ -119,9 +119,22 @@ export default function FlashLiveScreen() {
   const totalBundleFee = incomingOrders.reduce((sum, order) => sum + order.fee, 0);
 
   const handleAcceptBundle = async () => {
-    if (incomingOrders.length === 0) return;
+  if (incomingOrders.length === 0) return;
+  
+  //ดึงข้อมูลไรเดอร์
+  const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return;
+
     const orderIds = incomingOrders.map(o => o.id);
-    const { error } = await supabase.from('orders').update({ status: 'accepted' }).in('id', orderIds);
+    
+    //อัปเดตสถานะ
+    const { error } = await supabase
+      .from('orders')
+      .update({ 
+        status: 'accepted',
+        runner_id: userData.user.id
+      })
+      .in('id', orderIds);
 
     if (!error) {
       router.push({
@@ -130,7 +143,7 @@ export default function FlashLiveScreen() {
       });
     }
   };
-
+  
   const handleManualCloseFlash = async () => {
     if (!flashPostId) {
       router.replace('/(runner-tabs)');

@@ -122,7 +122,19 @@ export default function FlashLiveScreen() {
   const handleAcceptBundle = async () => {
     if (incomingOrders.length === 0) return;
     const orderIds = incomingOrders.map(o => o.id);
-    const { error } = await supabase.from('orders').update({ status: 'accepted' }).in('id', orderIds);
+    
+    //ดึงข้อมูลไรเดอร์ที่กำลังใช้งานอยู่
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return;
+
+    //อัปเดตสถานะเป็น accepted พร้อมกับใส่ runner_id ลงไปในออเดอร์
+    const { error } = await supabase
+      .from('orders')
+      .update({ 
+        status: 'accepted',
+        runner_id: userData.user.id
+      })
+      .in('id', orderIds);
 
     if (!error) {
       router.push({

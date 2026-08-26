@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import FlashBuyIntroModal from '@/components/FlashBuyIntroModal';
 import { buildSearchResultsRoute } from '@/lib/searchRouting';
 
+
 interface RunnerPostRow {
   id: number;
   post_type: 'normal' | 'flash';
@@ -301,6 +302,7 @@ export default function HomeScreen() {
 
         <View style={styles.spacer} />
       </ScrollView>
+      
 
       {/* โมดอล Flash Buy Intro */}
       {flashSession && (
@@ -311,14 +313,17 @@ export default function HomeScreen() {
           timeLeft={formatTime(timeLeft)}
           onClose={() => setIntroVisible(false)}
           onConfirm={() => {
-            setIntroVisible(false);
-            if (flashSession.postId) {
-              router.push({
-                pathname: '/flash/flash-order',
-                params: { flashPostId: flashSession.postId }
-              });
-            }
-          }}
+          setIntroVisible(false);
+          if (flashSession.postId) {
+            router.push({
+              pathname: '/flash/flash-order-form',
+              params: { 
+                flashPostId: flashSession.postId,
+                storeName: flashSession.storeName 
+              }
+            });
+          }
+        }}
         />
       )}
     </SafeAreaView>
