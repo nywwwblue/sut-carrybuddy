@@ -20,11 +20,13 @@ import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ORDER_THEME } from '@/constants/OrderTheme';
 import { StatusPill } from '@/components/StatusPill';
+import { checkDeliveryLocation, verifyDeliveryProof } from "@/lib/aiDeliveryCheck";
 
 // 📐 ฟังก์ชันคำนวณระยะทางทางตรงและแปลงเป็นเมตร/กิโลเมตร
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -237,6 +239,7 @@ export default function OrderDetailScreen() {
   // 📸 State สำหรับรูปภาพหลักฐาน
   const [proofs, setProofs] = useState<ProofItem[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   // 💵 State สำหรับ Modal กรอกราคาสินค้าจริง
@@ -306,14 +309,12 @@ export default function OrderDetailScreen() {
       let resolvedStoreLat: number | null = null;
       let resolvedStoreLng: number | null = null;
 
-      // กรองค่า custom_store_label ถ้าไม่ใช่คำว่า "ร้านค้า"
       if (row.custom_store_label && row.custom_store_label.trim() !== 'ร้านค้า') {
         resolvedStoreName = row.custom_store_label.trim();
         resolvedStoreLat = row.custom_store_lat ? Number(row.custom_store_lat) : null;
         resolvedStoreLng = row.custom_store_lng ? Number(row.custom_store_lng) : null;
       }
 
-      // 2. ถ้ายังไม่ได้ชื่อร้าน และมี store_id ใน orders ให้ดึงจากตาราง stores ตรงๆ
       if (!resolvedStoreName && row.store_id) {
         const { data: sData } = await supabase
           .from('stores')
@@ -328,7 +329,6 @@ export default function OrderDetailScreen() {
         }
       }
 
-      // 3. ถ้ายังไม่ได้ชื่อร้าน ให้ดึงจาก runner_posts ผ่าน post_id
       if (!resolvedStoreName && row.post_id) {
         const { data: postData } = await supabase
           .from('runner_posts')
@@ -357,7 +357,6 @@ export default function OrderDetailScreen() {
         }
       }
 
-      // 4. ดึงข้อมูลจุดส่งปลายทาง (Dropoff)
       let resolvedDropoffName: string | null = row.custom_dropoff_label || null;
       let resolvedDropoffLat: number | null = row.custom_dropoff_lat ? Number(row.custom_dropoff_lat) : null;
       let resolvedDropoffLng: number | null = row.custom_dropoff_lng ? Number(row.custom_dropoff_lng) : null;
@@ -376,7 +375,6 @@ export default function OrderDetailScreen() {
         }
       }
 
-      // 5. ดึงข้อมูลโปรไฟล์คู่สนทนา
       const isRunnerUser = uid && runId && String(uid).trim() === runId;
       const otherUserId = isRunnerUser ? reqId : runId;
       let otherName = 'ไม่ทราบชื่อ';
@@ -433,6 +431,48 @@ export default function OrderDetailScreen() {
     }, [loadOrder])
   );
 
+  // 🔔 ดักฟังการอัปโหลดรูปหลักฐาน และสถานะออเดอร์แบบ Realtime สำหรับทั้งสองฝ่าย
+  useEffect(() => {
+    if (!orderId) return;
+
+    const proofChannel = supabase
+      .channel(`proof-updates-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'proof_of_purchases',
+          filter: `order_id=eq.${orderId}`,
+        },
+        () => {
+          loadProofs();
+        }
+      )
+      .subscribe();
+
+    const orderChannel = supabase
+      .channel(`order-updates-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        },
+        () => {
+          loadOrder();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(proofChannel);
+      supabase.removeChannel(orderChannel);
+    };
+  }, [orderId, loadProofs, loadOrder]);
+
   const uidStr = myUserId ? String(myUserId).trim() : '';
   const reqIdStr = order?.requester_id ? String(order.requester_id).trim() : '';
   const runIdStr = order?.runner_id ? String(order.runner_id).trim() : '';
@@ -477,7 +517,7 @@ export default function OrderDetailScreen() {
     };
   }, [isRunner, order?.status, order?.id]);
 
-  // 📸 ฟังก์ชันถ่ายรูป / อัปโหลดหลักฐานส่งของแบบ Base64
+  // 📸 ฟังก์ชันถ่ายรูป / อัปโหลดหลักฐานส่งของแบบ Base64 พร้อมระบบ AI & GPS Check
   const handlePickAndUploadProof = async () => {
     if (!order) return;
 
@@ -492,11 +532,16 @@ export default function OrderDetailScreen() {
           }
           const res = await ImagePicker.launchCameraAsync({
             mediaTypes: ['images'],
-            quality: 0.6,
-            base64: true,
+            allowsEditing: false,
           });
+
           if (!res.canceled && res.assets[0]?.uri) {
-            uploadProofImage(res.assets[0].uri, res.assets[0].base64);
+            const manipResult = await ImageManipulator.manipulateAsync(
+              res.assets[0].uri,
+              [{ resize: { width: 500 } }],
+              { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+            );
+            uploadProofImage(manipResult.uri, manipResult.base64);
           }
         },
       },
@@ -505,11 +550,16 @@ export default function OrderDetailScreen() {
         onPress: async () => {
           const res = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
-            quality: 0.6,
-            base64: true,
+            allowsEditing: false,
           });
+
           if (!res.canceled && res.assets[0]?.uri) {
-            uploadProofImage(res.assets[0].uri, res.assets[0].base64);
+            const manipResult = await ImageManipulator.manipulateAsync(
+              res.assets[0].uri,
+              [{ resize: { width: 800 } }],
+              { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+            );
+            uploadProofImage(manipResult.uri, manipResult.base64);
           }
         },
       },
@@ -520,15 +570,49 @@ export default function OrderDetailScreen() {
   const uploadProofImage = async (uri: string, base64Data?: string | null) => {
     if (!order) return;
     setUploadingImage(true);
+    setIsVerifying(true);
 
     try {
-      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `proof_${order.id}_${Date.now()}.${fileExt}`;
-      const contentType = `image/${fileExt === 'png' ? 'png' : 'jpeg'}`;
-
       if (!base64Data) {
         throw new Error('ไม่พบข้อมูลภาพ Base64');
       }
+
+      // 📍 1. ตรวจสอบพิกัด GPS
+      if (order.dropoffLat && order.dropoffLng) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const locationCheck = checkDeliveryLocation(
+            currentLoc.coords.latitude,
+            currentLoc.coords.longitude,
+            order.dropoffLat,
+            order.dropoffLng,
+            100
+          );
+
+          if (!locationCheck.isAtLocation) {
+            Alert.alert(
+              'ตำแหน่งไม่ถูกต้อง',
+              `คุณอยู่ห่างจากจุดส่งประมาณ ${locationCheck.distanceMeters} เมตร กรุณาเดินทางไปยังจุดส่งของจริงก่อนบันทึกหลักฐาน`
+            );
+            return;
+          }
+        }
+      }
+
+      // 🤖 2. ให้ Gemini วิเคราะห์รูปภาพ
+      const aiReport = await verifyDeliveryProof(base64Data, order.dropoffLabel || "จุดส่งของ");
+      console.log("Check AI Report Value:", aiReport);
+
+      if (!aiReport.is_valid_delivery) {
+        Alert.alert('ภาพถ่ายไม่ถูกต้อง', aiReport.damage_description || 'กรุณาถ่ายภาพพัสดุที่วางส่งให้ชัดเจน');
+        return;
+      }
+
+      // ☁️ 3. อัปโหลดภาพเข้า Supabase Storage
+      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `proof_${order.id}_${Date.now()}.${fileExt}`;
+      const contentType = `image/${fileExt === 'png' ? 'png' : 'jpeg'}`;
 
       const { error: uploadError } = await supabase.storage
         .from('proof_images')
@@ -545,6 +629,7 @@ export default function OrderDetailScreen() {
 
       const finalUrl = publicUrlData.publicUrl;
 
+      // 💾 4. บันทึกลงตาราง proof_of_purchases
       const { error: insertError } = await supabase
         .from('proof_of_purchases')
         .insert({
@@ -556,13 +641,69 @@ export default function OrderDetailScreen() {
 
       if (insertError) throw new Error(`Database Error: ${insertError.message}`);
 
-      Alert.alert('สำเร็จ', 'บันทึกหลักฐานการจัดส่งเรียบร้อยแล้ว');
+      // 🛑 5. แยกกระบวนการตามระดับความเสียหาย
+      if (aiReport.damage_severity === 'severe') {
+        // 🔴 เสียหายหนัก: สั่งเปิดข้อพิพาท (Dispute) ทันที
+        await supabase.from('orders').update({ status: 'disputed' }).eq('id', order.id);
+        await supabase.from('order_status_logs').insert({
+          order_id: order.id,
+          changed_by: myUserId,
+          status: 'disputed',
+          note: `ระบบอัตโนมัติตรวจพบความเสียหายรุนแรง: ${aiReport.damage_description}`,
+        });
+
+        Alert.alert(
+          '❌ สินค้าเสียหายรุนแรง (ส่งเคลม)',
+          `AI ตรวจพบ: ${aiReport.damage_description}\n\nระบบได้บันทึกหลักฐานและเปลี่ยนสถานะออเดอร์เป็น "ระงับเพื่อตรวจสอบข้อพิพาท" เพื่อให้แอดมินดำเนินการเคลมเงินคืน`,
+          [{ text: 'รับทราบ' }]
+        );
+      } else if (aiReport.damage_severity === 'minor') {
+        // 🟡 เสียหายเล็กน้อย: แจ้งไรเดอร์ว่ารอลูกค้ากดยินยอม
+        Alert.alert(
+          '⚠️ พัสดุมีตำหนิเล็กน้อย',
+          `AI ตรวจพบ: ${aiReport.damage_description}\n\nภาพหลักฐานถูกส่งไปยังหน้าจอของลูกค้าแล้ว กรุณาแจ้งให้ลูกค้ากดยินยอมรับสินค้าผ่านแอป เพื่อให้ระบบเปิดให้สแกนจบงาน`,
+          [{ text: 'รับทราบ' }]
+        );
+      } else {
+        // 🟢 สมบูรณ์ดี
+        Alert.alert('สำเร็จ', `บันทึกหลักฐานเรียบร้อย (${aiReport.damage_description})`);
+      }
+
       await loadProofs();
+      await loadOrder();
     } catch (err: any) {
       Alert.alert('อัปโหลดไม่สำเร็จ', err.message || 'กรุณาลองใหม่อีกครั้ง');
     } finally {
       setUploadingImage(false);
+      setIsVerifying(false);
     }
+  };
+
+  // 🤝 ฟังก์ชันลูกค้ายินยอมรับสภาพสินค้าที่มีตำหนิเล็กน้อย
+  const handleAcceptMinorDamage = async () => {
+    Alert.alert('ยืนยันการรับสินค้า', 'คุณยินยอมรับสินค้าในสภาพนี้ใช่หรือไม่?', [
+      { text: 'ยกเลิก', style: 'cancel' },
+      {
+        text: 'ยินยอมรับของ',
+        onPress: async () => {
+          setUpdating(true);
+          try {
+            await supabase.from('order_status_logs').insert({
+              order_id: order?.id,
+              changed_by: myUserId,
+              status: order?.status,
+              note: 'ลูกค้ายินยอมรับสภาพสินค้าที่มีตำหนิเล็กน้อย',
+            });
+            Alert.alert('สำเร็จ', 'คุณยินยอมรับสินค้าแล้ว กรุณารอสแกน QR Code จากไรเดอร์เพื่อรับของ');
+            await loadProofs();
+          } catch (e: any) {
+            Alert.alert('ผิดพลาด', e.message);
+          } finally {
+            setUpdating(false);
+          }
+        },
+      },
+    ]);
   };
 
   // 💵 ฟังก์ชันอัปเดตราคาสินค้าจริง
@@ -862,14 +1003,48 @@ export default function OrderDetailScreen() {
               />
             )}
 
-            {order.status === 'completed' && proofs.length > 0 && (
-              <TouchableOpacity 
-                style={styles.proofFullButton}
-                onPress={() => setViewingImage(proofs[0].image_url)}
-              >
-                <Ionicons name="images" size={18} color="#FFFFFF" />
-                <Text style={styles.proofFullButtonText}>หลักฐานการจัดส่งสินค้า</Text>
-              </TouchableOpacity>
+            {/* 📸 กล่องแสดงภาพหลักฐานส่งของแบบ Realtime ให้ลูกค้าเห็นทันที */}
+            {proofs.length > 0 && (
+              <View style={styles.requesterProofCard}>
+                <View style={styles.requesterProofHeader}>
+                  <Ionicons name="shield-checkmark" size={18} color="#FF7A30" />
+                  <Text style={styles.requesterProofTitle}>ภาพหลักฐานพัสดุจากผู้รับหิ้ว</Text>
+                </View>
+
+                <TouchableOpacity onPress={() => setViewingImage(proofs[0].image_url)}>
+                  <Image
+                    source={{ uri: proofs[0].image_url }}
+                    style={styles.requesterProofImage}
+                    resizeMode="cover"
+                  />
+                  <Text style={styles.tapToViewText}>แตะที่รูปเพื่อดูรูปขยาย</Text>
+                </TouchableOpacity>
+
+                {/* ตัวเลือกให้ลูกค้าตัดสินใจหากพัสดุมีตำหนิเล็กน้อย */}
+                {order.status === 'delivering' && (
+                  <View style={styles.consentActionRow}>
+                    <TouchableOpacity
+                      style={styles.acceptConsentBtn}
+                      onPress={handleAcceptMinorDamage}
+                      disabled={updating}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                      <Text style={styles.acceptConsentText}>ยอมรับสภาพสินค้านี้</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.rejectConsentBtn}
+                      onPress={() => {
+                        setSelectedReason('สินค้าแตกหัก / เสียหายจากการขนส่ง (ขอเคลม)');
+                        setDisputeModalVisible(true);
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#FFFFFF" />
+                      <Text style={styles.rejectConsentText}>ไม่ยอมรับ / ขอเคลม</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             )}
 
             {order.status === 'pending' && (
@@ -913,7 +1088,7 @@ export default function OrderDetailScreen() {
               </View>
             )}
 
-            {/* 📸 ปุ่มเดี่ยว: "หลักฐานการจัดส่งสินค้า" */}
+            {/* 📸 ปุ่มบันทึกภาพหลักฐานการจัดส่งสินค้า */}
             {order.status === 'delivering' && (
               <View style={styles.runnerProofBox}>
                 {proofs.length === 0 ? (
@@ -923,7 +1098,12 @@ export default function OrderDetailScreen() {
                     disabled={uploadingImage}
                   >
                     {uploadingImage ? (
-                      <ActivityIndicator size="small" color="#FF7A30" />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <ActivityIndicator size="small" color="#FF7A30" />
+                        <Text style={styles.runnerProofBtnText}>
+                          {isVerifying ? "AI กำลังตรวจสอบภาพและพิกัด..." : "กำลังบันทึกภาพ..."}
+                        </Text>
+                      </View>
                     ) : (
                       <>
                         <Ionicons name="camera" size={18} color="#FF7A30" />
@@ -1024,7 +1204,7 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner (เปิดให้กดได้ทุกสถานะจนจบงาน) */}
+        {/* ปุ่มเลื่อนสถานะงานสำหรับ Runner */}
         {isRunner && 
         order.status !== 'disputed' && 
         currentStepIndex >= 0 && 
@@ -1128,7 +1308,7 @@ export default function OrderDetailScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* 💵 Modal แก้ไขราคาสินค้าจริง (เพิ่ม KeyboardAvoidingView + ปรับให้ลอยพ้นคีย์บอร์ด) */}
+      {/* 💵 Modal แก้ไขราคาสินค้าจริง */}
       <Modal visible={priceModalVisible} transparent animationType="fade">
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1169,7 +1349,7 @@ export default function OrderDetailScreen() {
         </View>
       </Modal>
 
-      {/* 🛑 Modal รวมหัวข้อการรายงานปัญหา (ใส่ keyboardVerticalOffset ให้เลื่อนหลบคีย์บอร์ด) */}
+      {/* 🛑 Modal รวมหัวข้อการรายงานปัญหา */}
       <Modal
         visible={disputeModalVisible}
         transparent={true}
@@ -1503,22 +1683,76 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FF7A30',
   },
-  proofFullButton: {
+  requesterProofCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F5EBE1',
+    shadowColor: '#3A2113',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  requesterProofHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  requesterProofTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#3A2113',
+  },
+  requesterProofImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+  },
+  tapToViewText: {
+    fontSize: 11,
+    color: '#8B7E74',
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  consentActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  acceptConsentBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    gap: 4,
     backgroundColor: '#2ECC71',
-    borderRadius: 14,
-    paddingVertical: 16,
-    elevation: 2,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  proofFullButtonText: {
+  acceptConsentText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
-    fontSize: 15,
+    fontSize: 13,
+  },
+  rejectConsentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#E74C3C',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  rejectConsentText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
   itemsCard: {
     marginHorizontal: 16,
