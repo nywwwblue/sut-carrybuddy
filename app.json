@@ -23,7 +23,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "jsEngine": "hermes"    
+      "jsEngine": "hermes"
     },
     "web": {
       "bundler": "metro",
@@ -38,7 +38,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "SUT CarryBuddy ใช้ตำแหน่งของคุณเพื่อปักหมุดจุดต้นทาง/ปลายทางในการฝากหิ้ว"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

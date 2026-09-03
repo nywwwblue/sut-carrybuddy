@@ -22,9 +22,10 @@ async function getWeather(): Promise<string> {
     const data = await res.json();
     const rain = data.current.precipitation;
     const code = data.current.weathercode;
-
-    if (rain > 1 || (code >= 51 && code <= 99)) return 'rain';
+    
+    if (rain > 2 || (code >= 61 && code <= 99)) return 'rain';
     if (code >= 95) return 'storm';
+    
     return 'clear';
   } catch {
     return 'clear';
