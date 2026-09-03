@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator, Modal, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { LocationPickerModal, PickedLocation } from '@/components/LocationPickerModal';
 import { ScreenHeader } from '@/components/ScreenHeader'; 
+import { suggestFee, type FeeResult } from '@/lib/feeSuggester';
 
 const VEHICLES: { id: 'walk' | 'bike' | 'moto' | 'car'; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'walk', label: 'เดิน', icon: 'walk' },
@@ -52,14 +53,40 @@ export default function CreateRoutePost() {
   const [selectedStore, setSelectedStore] = useState<PickedLocation | null>(null);
   const [selectedDropoff, setSelectedDropoff] = useState<PickedLocation | null>(null);
   const [pickerOpen, setPickerOpen] = useState<'store' | 'dropoff' | null>(null);
-  const [timeModalVisible, setTimeModalVisible] = useState(false); // ควบคุมการเปิดปิด Modal เวลา
+  const [timeModalVisible, setTimeModalVisible] = useState(false);
   const [departTime, setDepartTime] = useState('ออกทันทีเมื่อของครบ');
   const [vehicle, setVehicle] = useState<'walk' | 'bike' | 'moto' | 'car'>('walk');
   const [maxOrders, setMaxOrders] = useState(3);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const feePerOrder = vehicle === 'car' ? 25 : vehicle === 'moto' ? 20 : vehicle === 'bike' ? 15 : 10;
+  // State สำหรับจัดการราคา และ Gemini AI
+  const defaultFee = vehicle === 'car' ? 25 : vehicle === 'moto' ? 20 : vehicle === 'bike' ? 15 : 10;
+  const [customFee, setCustomFee] = useState<string>(''); // เก็บราคาที่ผู้ใช้พิมพ์หรือ AI แนะนำ
+  const [feeSuggestion, setFeeSuggestion] = useState<FeeResult | null>(null);
+  const [loadingFee, setLoadingFee] = useState(false);
+
+  // ราคาที่จะใช้ส่งเข้า Database (ถ้าไม่ได้พิมพ์อะไร ให้ใช้ default ของรถ)
+  const finalFee = customFee !== '' ? Number(customFee) : defaultFee;
+
+  // ให้ AI คำนวณเมื่อข้อมูลที่มีผลต่อราคาเปลี่ยนไป
+  useEffect(() => {
+    const storeName = locationLabel(selectedStore);
+    const dropoffName = locationLabel(selectedDropoff);
+    
+    if (!storeName || !dropoffName) return;
+
+    setLoadingFee(true);
+    suggestFee({
+      store_name: storeName,
+      dropoff_name: dropoffName,
+      item_count: maxOrders,
+      vehicle: vehicle,
+    })
+    .then(setFeeSuggestion)
+    .catch(console.error)
+    .finally(() => setLoadingFee(false));
+  }, [selectedStore, selectedDropoff, vehicle, maxOrders]);
 
   const handlePostRoute = async () => {
     if (submitting) return;
@@ -75,10 +102,9 @@ export default function CreateRoutePost() {
       return;
     }
 
-    // 🛠️ แปลงเวลา เช่น "12:30 น." ให้เหลือแค่ "12:30:00" หรือส่งเป็น null ถ้าเลือก "ออกทันทีเมื่อของครบ"
     let formattedTime: string | null = null;
     if (departTime && departTime !== 'ออกทันทีเมื่อของครบ') {
-      const cleanTime = departTime.replace(' น.', '').trim(); // ตัดคำว่า " น." ออก
+      const cleanTime = departTime.replace(' น.', '').trim(); 
       formattedTime = cleanTime.length === 5 ? `${cleanTime}:00` : cleanTime;
     }
 
@@ -92,8 +118,8 @@ export default function CreateRoutePost() {
       post_type: 'normal',
       vehicle_type: vehicle,
       max_orders: maxOrders,
-      fee_per_order: feePerOrder,
-      available_at: formattedTime, // 👈 ใช้ค่าที่ตัดคำว่า น. ออกแล้ว
+      fee_per_order: finalFee, // บันทึกราคาที่ AI แนะนำหรือที่ผู้ใช้พิมพ์
+      available_at: formattedTime,
       note: note || null,
       status: 'open',
     });
@@ -155,7 +181,10 @@ export default function CreateRoutePost() {
             <TouchableOpacity
               key={v.id}
               style={[styles.vehicleChip, vehicle === v.id && styles.vehicleChipActive]}
-              onPress={() => setVehicle(v.id)}
+              onPress={() => {
+                setVehicle(v.id);
+                setCustomFee(''); // รีเซ็ตราคาเมื่อเปลี่ยนรถ เพื่อให้เห็นเรท AI ใหม่หรือเรท Default ของรถ
+              }}
               activeOpacity={0.8}
             >
               <Ionicons name={v.icon} size={16} color={vehicle === v.id ? '#FF7A30' : '#3A2113'} style={{ marginBottom: 4 }} />
@@ -180,12 +209,60 @@ export default function CreateRoutePost() {
           <View style={[styles.progressFill, { width: `${(maxOrders / 10) * 100}%` }]} />
         </View>
 
-        <View style={styles.feeBox}>
-          <View>
-            <Text style={styles.feeLabel}>ค่าหิ้วเริ่มต้น (Rule-based)</Text>
-            <Text style={styles.feeAmount}>฿{feePerOrder.toFixed(0)}</Text>
+        {/* แสดงผล Gemini AI แนะนำราคาสำหรับ Runner */}
+        <Text style={[styles.label, { marginTop: 8 }]}>ตั้งค่าหิ้ว (ต่อออเดอร์)</Text>
+        
+        {loadingFee && (
+          <View style={styles.feeLoading}>
+            <ActivityIndicator color="#FF7A30" size="small" />
+            <Text style={styles.feeLoadingTxt}>Gemini AI กำลังคำนวณเรทราคาที่เหมาะสมให้คุณ...</Text>
           </View>
-          <Ionicons name="shield-checkmark" size={24} color="#FFFFFF" />
+        )}
+
+        {feeSuggestion && !loadingFee && (
+          <View style={styles.feeCard}>
+            <View style={styles.feeHeader}>
+              <Text style={styles.feeTitle}>✨ Gemini AI ประเมินราคา</Text>
+              {feeSuggestion.is_peak && (
+                <View style={styles.peakBadge}><Text style={styles.peakTxt}>🔥 ช่วงคนเยอะ</Text></View>
+              )}
+              {feeSuggestion.weather === 'rain' && (
+                <View style={styles.rainBadge}><Text style={styles.rainTxt}>🌧️ ฝนตก</Text></View>
+              )}
+            </View>
+
+            <View style={styles.reasonBox}>
+              <Text style={styles.feeReason}>"{feeSuggestion.reason}"</Text>
+            </View>
+
+            <View style={styles.feeActionRow}>
+              <Text style={styles.feeSuggested}>
+                น่าจะรับงานที่: <Text style={styles.feeBold}>฿{feeSuggestion.suggested}</Text>
+              </Text>
+              <TouchableOpacity 
+                style={styles.useAiFeeBtn} 
+                onPress={() => setCustomFee(String(feeSuggestion.suggested))}
+              >
+                <Text style={styles.useAiFeeTxt}>ใช้ราคานี้</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* กล่องแก้ไขค่าหิ้ว (สามารถพิมพ์แก้ไขตัวเลขได้เลย) */}
+        <View style={styles.feeBox}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.feeLabel}>ค่าหิ้วที่คุณจะได้รับ (บาท/ออเดอร์)</Text>
+            <TextInput
+              style={styles.feeEditInput}
+              keyboardType="decimal-pad"
+              value={customFee !== '' ? customFee : String(defaultFee)}
+              onChangeText={setCustomFee}
+              placeholder={String(defaultFee)}
+              placeholderTextColor="rgba(255,255,255,0.6)"
+            />
+          </View>
+          <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.8)" style={{ marginLeft: 10 }} />
         </View>
 
         <TouchableOpacity style={styles.postBtn} onPress={handlePostRoute} disabled={submitting}>
@@ -195,7 +272,7 @@ export default function CreateRoutePost() {
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* Modal เลือกเวลาทุกเวลาตลอด 24 ชั่วโมง */}
+      {/* Modal เลือกเวลา */}
       <Modal visible={timeModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -260,7 +337,6 @@ const styles = StyleSheet.create({
   pickerText: { flex: 1, fontSize: 14, color: '#3A2113', fontWeight: '600' },
   pickerPlaceholder: { color: '#B0A498', fontWeight: '500' },
   
-  // สไตล์ช่องกดเลือกเวลา
   timeSelectorField: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#F5EBE1',
@@ -269,7 +345,6 @@ const styles = StyleSheet.create({
   },
   timeSelectorText: { flex: 1, fontSize: 14, fontWeight: 'bold', color: '#FF7A30' },
 
-  // สไตล์ Modal เลือกเวลา
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '60%', paddingBottom: 36 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 10, borderBottomWidth: 1, borderColor: '#F5EBE1' },
@@ -297,15 +372,37 @@ const styles = StyleSheet.create({
     width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFF3EB',
     alignItems: 'center', justifyContent: 'center',
   },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: '#F0E5DC', overflow: 'hidden', marginBottom: 24 },
+  progressTrack: { height: 6, borderRadius: 3, backgroundColor: '#F0E5DC', overflow: 'hidden', marginBottom: 16 },
   progressFill: { height: '100%', backgroundColor: '#FF7A30', borderRadius: 3 },
+  
   feeBox: {
     backgroundColor: '#FF7A30', borderRadius: 16, padding: 18, marginBottom: 24,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     shadowColor: '#FF7A30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 2
   },
   feeLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '500' },
-  feeAmount: { color: '#FFFFFF', fontSize: 26, fontWeight: 'bold', marginTop: 2 },
+  feeEditInput: { 
+    color: '#FFFFFF', fontSize: 28, fontWeight: 'bold', marginTop: 2, 
+    padding: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.3)', width: 100 
+  },
+  
+  feeLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 4, marginBottom: 8 },
+  feeLoadingTxt: { fontSize: 12, color: '#8B7E74' },
+  feeCard: { backgroundColor: '#FFF8F3', borderRadius: 14, borderWidth: 1, borderColor: '#FF7A30', padding: 14, marginBottom: 12 },
+  feeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  feeTitle: { fontSize: 13, fontWeight: '700', color: '#FF7A30', flex: 1 },
+  peakBadge: { backgroundColor: '#FFF0E0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  peakTxt: { fontSize: 10, color: '#FF7A30', fontWeight: '600' },
+  rainBadge: { backgroundColor: '#E8F4FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  rainTxt: { fontSize: 10, color: '#3B7DD8', fontWeight: '600' },
+  reasonBox: { backgroundColor: '#FFFFFF', padding: 10, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#FFE8D6' },
+  feeReason: { fontSize: 12, color: '#5C4638', fontStyle: 'italic', lineHeight: 18 },
+  feeActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  feeSuggested: { fontSize: 13, color: '#3A2113' },
+  feeBold: { fontSize: 18, fontWeight: '800', color: '#FF7A30' },
+  useAiFeeBtn: { backgroundColor: '#FF7A30', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  useAiFeeTxt: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+
   postBtn: {
     backgroundColor: '#FF7A30', borderRadius: 14, paddingVertical: 16, alignItems: 'center',
     shadowColor: '#FF7A30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 3

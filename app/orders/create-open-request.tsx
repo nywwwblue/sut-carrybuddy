@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,9 @@ import { LocationPickerModal, PickedLocation } from '@/components/LocationPicker
 import { ItemListEditor, EditableItem, calcItemTotal } from '@/components/ItemListEditor';
 import { ORDER_THEME } from '@/constants/OrderTheme';
 import { ScreenHeader } from '@/components/ScreenHeader';
+
+// Import ฟังก์ชัน AI
+import { suggestFee, type FeeResult } from '@/lib/feeSuggester';
 
 function locationLabel(loc: PickedLocation | null) {
   if (!loc) return null;
@@ -25,7 +28,31 @@ export default function CreateOpenRequest() {
   
   const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'wallet'>('cash_on_delivery');
 
+  // State สำหรับ Gemini AI
+  const [feeSuggestion, setFeeSuggestion] = useState<FeeResult | null>(null);
+  const [loadingFee, setLoadingFee] = useState(false);
+
   const itemTotal = calcItemTotal(items);
+
+  // ให้ AI คำนวณเมื่อเลือกร้านและจุดส่ง
+  useEffect(() => {
+    const storeName = locationLabel(store);
+    const dropoffName = locationLabel(dropoff);
+    const validItemsCount = items.filter((i) => i.name.trim()).length;
+
+    if (!storeName || !dropoffName) return; 
+    
+    setLoadingFee(true);
+    suggestFee({
+      store_name: storeName,
+      dropoff_name: dropoffName,
+      item_count: validItemsCount === 0 ? 1 : validItemsCount,
+      vehicle: 'any',
+    })
+    .then(setFeeSuggestion)
+    .catch(console.error)
+    .finally(() => setLoadingFee(false));
+  }, [store, dropoff, items]);
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -142,8 +169,49 @@ export default function CreateOpenRequest() {
 
         <View style={styles.sectionCard}>
           <Text style={styles.label}>ค่าหิ้วที่จะให้ (บาท)</Text>
+
+          {/* AI Loading */}
+          {loadingFee && (
+            <View style={styles.feeLoading}>
+              <ActivityIndicator color="#FF7A30" size="small" />
+              <Text style={styles.feeLoadingTxt}>Gemini AI กำลังวิเคราะห์ระยะทางและสภาพอากาศ...</Text>
+            </View>
+          )}
+
+          {/* แสดงผล Gemini AI */}
+          {feeSuggestion && !loadingFee && (
+            <View style={styles.feeCard}>
+              <View style={styles.feeHeader}>
+                <Text style={styles.feeTitle}>✨ Gemini AI ประเมินราคา</Text>
+                {feeSuggestion.is_peak && (
+                  <View style={styles.peakBadge}><Text style={styles.peakTxt}>🔥 ช่วงคนเยอะ</Text></View>
+                )}
+                {feeSuggestion.weather === 'rain' && (
+                  <View style={styles.rainBadge}><Text style={styles.rainTxt}>🌧️ ฝนตก</Text></View>
+                )}
+              </View>
+
+              {/* โชว์เหตุผลให้ผู้ใช้เห็นชัดๆ */}
+              <View style={styles.reasonBox}>
+                <Text style={styles.feeReason}>"{feeSuggestion.reason}"</Text>
+              </View>
+
+              <View style={styles.feeActionRow}>
+                <Text style={styles.feeSuggested}>
+                  ราคาแนะนำ: <Text style={styles.feeBold}>฿{feeSuggestion.suggested}</Text>
+                </Text>
+                <TouchableOpacity 
+                  style={styles.useAiFeeBtn} 
+                  onPress={() => setOfferFee(String(feeSuggestion.suggested))}
+                >
+                  <Text style={styles.useAiFeeTxt}>ใช้ราคานี้</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <TextInput
-            style={styles.feeInput}
+            style={[styles.feeInput, feeSuggestion ? { marginTop: 12 } : {}]}
             keyboardType="decimal-pad"
             value={offerFee}
             onChangeText={setOfferFee}
@@ -156,7 +224,7 @@ export default function CreateOpenRequest() {
           <View style={styles.paymentRow}>
             <TouchableOpacity
               style={[styles.paymentOption, paymentMethod === 'cash_on_delivery' && styles.paymentOptionActive]}
-              onPress={() => setPaymentMethod('cash_on_delivery' as any)}
+              onPress={() => setPaymentMethod('cash_on_delivery')}
               activeOpacity={0.8}
             >
               <Ionicons name="wallet-outline" size={20} color={paymentMethod === 'cash_on_delivery' ? ORDER_THEME.accent : ORDER_THEME.textSecondary} />
@@ -369,4 +437,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  
+  feeLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  feeLoadingTxt: { fontSize: 12, color: '#8B7E74' },
+  feeCard: { backgroundColor: '#FFF8F3', borderRadius: 14, borderWidth: 1, borderColor: '#FF7A30', padding: 14, marginBottom: 12 },
+  feeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  feeTitle: { fontSize: 13, fontWeight: '700', color: '#FF7A30', flex: 1 },
+  peakBadge: { backgroundColor: '#FFF0E0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  peakTxt: { fontSize: 10, color: '#FF7A30', fontWeight: '600' },
+  rainBadge: { backgroundColor: '#E8F4FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  rainTxt: { fontSize: 10, color: '#3B7DD8', fontWeight: '600' },
+  reasonBox: { backgroundColor: '#FFFFFF', padding: 10, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#FFE8D6' },
+  feeReason: { fontSize: 12, color: '#5C4638', fontStyle: 'italic', lineHeight: 18 },
+  feeActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  feeSuggested: { fontSize: 13, color: '#3A2113' },
+  feeBold: { fontSize: 18, fontWeight: '800', color: '#FF7A30' },
+  useAiFeeBtn: { backgroundColor: '#FF7A30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  useAiFeeTxt: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
 });
